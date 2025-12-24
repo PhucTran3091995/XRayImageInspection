@@ -333,7 +333,7 @@
                                                 <ColumnDefinition Width="40"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="Min Area" VerticalAlignment="Center" Foreground="#555"/>
-                                            <Slider Grid.Column="1" Minimum="50" Maximum="1000" Value="{Binding MinArea}" Margin="10,0"/>
+                                            <Slider Grid.Column="1" Minimum="400" Maximum="1000" Value="{Binding MinArea}" Margin="10,0"/>
                                             <TextBlock Grid.Column="2" Text="{Binding MinArea}" VerticalAlignment="Center" FontWeight="Bold"/>
                                         </Grid>
                                         <Grid Margin="0,5">
@@ -407,13 +407,25 @@
                                     </StackPanel>
                                 </GroupBox>
 
-                                <GroupBox Header="4. Area of Interest (ROI)" Margin="0,5">
+                                <GroupBox Header="4. Tools (ROI &amp; Manual)" Margin="0,5">
                                     <StackPanel Margin="5">
-                                        <DockPanel LastChildFill="False">
-                                            <ToggleButton Content="✏️ DRAW ROI" IsChecked="{Binding IsDrawMode}" Height="30" Width="100" Background="White" DockPanel.Dock="Left"/>
-                                            <Button Content="❌ CLEAR" Command="{Binding ClearRoiCommand}" Height="30" Width="80" Background="#DDD" DockPanel.Dock="Right"/>
+                                        <DockPanel LastChildFill="False" Margin="0,0,0,5">
+                                            <ToggleButton Content="✏️ DRAW ROI" IsChecked="{Binding IsDrawMode}" 
+                                              Height="30" Width="100" Background="White" DockPanel.Dock="Left"
+                                              ToolTip="Vẽ vùng tìm kiếm tự động"/>
+
+                                            <Button Content="❌ CLEAR ROI" Command="{Binding ClearRoiCommand}" 
+                                                Height="30" Width="90" Background="#DDD" DockPanel.Dock="Right"/>
                                         </DockPanel>
-                                        <TextBlock Text="Chỉ tìm ball trong khung vàng." FontSize="10" FontStyle="Italic" Margin="0,2"/>
+                                        <DockPanel LastChildFill="False">
+                                            <ToggleButton Content="➕ ADD BALL" IsChecked="{Binding IsAddBallMode}" 
+                                                  Height="30" Width="100" Background="#E0F7FA" DockPanel.Dock="Left"
+                                                  Foreground="#006064" FontWeight="Bold"
+                                                  ToolTip="Bật chế độ này rồi click lên ảnh để thêm ball thủ công"/>
+                                            <TextBlock Text="Click ảnh để thêm" VerticalAlignment="Center" 
+                                                    Foreground="Gray" FontStyle="Italic" Margin="10,0,0,0" DockPanel.Dock="Left"/>
+                                        </DockPanel>
+
                                     </StackPanel>
                                 </GroupBox>
 

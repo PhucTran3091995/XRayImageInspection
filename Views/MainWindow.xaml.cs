@@ -45,6 +45,22 @@ namespace WpfXrayQA.Views
             // Grid bao ngoài (container)
             var container = sender as IInputElement;
 
+            // --- [MỚI] XỬ LÝ THÊM BALL THỦ CÔNG ---
+            if (vm.IsAddBallMode && e.LeftButton == MouseButtonState.Pressed && e.ClickCount == 1)
+            {
+                // Lấy tọa độ chính xác trên ảnh (TeachImage)
+                Point p = e.GetPosition(TeachImage);
+
+                // Kiểm tra tọa độ có nằm trong ảnh không
+                if (p.X >= 0 && p.Y >= 0 &&
+                    p.X <= TeachImage.Source.Width &&
+                    p.Y <= TeachImage.Source.Height)
+                {
+                    vm.AddManualBall(p);
+                }
+                return; // Kết thúc, không xử lý Pan hay Draw nữa
+            }
+
             // 1. NẾU ĐANG Ở CHẾ ĐỘ VẼ ROI
             if (vm.IsDrawMode && e.LeftButton == MouseButtonState.Pressed)
             {

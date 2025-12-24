@@ -292,73 +292,234 @@ namespace WpfXrayQA.Services
         {
             var resultShapes = new List<OverlayShape>();
 
-            // 1. Nếu không có tọa độ mẫu thì trả về rỗng (hoặc chạy auto detect tùy bạn)
             if (recipe.ReferencePoints == null || recipe.ReferencePoints.Count == 0)
                 return resultShapes;
 
             using var src = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
             if (src.Empty()) return resultShapes;
 
-            // 2. [TÙY CHỌN] CĂN CHỈNH (ALIGNMENT)
-            // Nếu bạn muốn chương trình thông minh hơn (tự bù trừ khi ảnh bị lệch), giữ đoạn code này.
-            // Nếu bạn muốn nó "cứng nhắc" tuyệt đối (đúng tọa độ pixel), hãy set shiftX = 0, shiftY = 0.
+            // =========================================================
+            // BƯỚC 1: DÒ TÌM CÁC ĐIỂM MỐC (RELAXED SEARCH)
+            // =========================================================
+            // Tạo Recipe dễ tính để bắt được ball ngay cả khi bị rung/méo
+            var alignRecipe = new Recipe
+            {
+                MinBallAreaPx = (int)(recipe.MinBallAreaPx * 0.5), // Chấp nhận nhỏ hơn
+                MaxBallAreaPx = (int)(recipe.MaxBallAreaPx * 1.5), // Chấp nhận to hơn (do zoom)
+                MinCircularity = 0.4, // Chấp nhận méo
+                UseAdaptiveThreshold = true,
+                AutoThreshold = recipe.AutoThreshold,
+                MorphKernelSize = recipe.MorphKernelSize,
+                BallRadiusPx = recipe.BallRadiusPx,
+                // Copy vùng ROI
+                RoiX = recipe.RoiX,
+                RoiY = recipe.RoiY,
+                RoiWidth = recipe.RoiWidth,
+                RoiHeight = recipe.RoiHeight
+            };
 
+            var currentBlobs = AutoDetectAllBallsOpenCV(imagePath, alignRecipe);
+
+            // =========================================================
+            // BƯỚC 2: TÍNH TOÁN MA TRẬN BIẾN ĐỔI (SHIFT + ZOOM + ROTATE)
+            // =========================================================
+
+            // Danh sách cặp điểm: Nguồn (Recipe) -> Đích (Thực tế)
+            var srcPoints = new List<Point2f>();
+            var dstPoints = new List<Point2f>();
+
+            if (currentBlobs.Count > 0)
+            {
+                foreach (var refPt in recipe.ReferencePoints)
+                {
+                    // Tìm điểm thực tế gần nhất trong phạm vi cho phép
+                    // Cho phép lệch xa hơn (3 lần bán kính) để bắt được các điểm ở góc bị Zoom mạnh
+                    double searchRadius = recipe.BallRadiusPx * 3.0;
+
+                    var nearest = currentBlobs.MinBy(b => Math.Pow(b.X - refPt.X, 2) + Math.Pow(b.Y - refPt.Y, 2));
+
+                    if (nearest != null)
+                    {
+                        double dist = Math.Sqrt(Math.Pow(nearest.X - refPt.X, 2) + Math.Pow(nearest.Y - refPt.Y, 2));
+                        if (dist < searchRadius)
+                        {
+                            srcPoints.Add(new Point2f((float)refPt.X, (float)refPt.Y));
+                            dstPoints.Add(new Point2f((float)nearest.X, (float)nearest.Y));
+                        }
+                    }
+                }
+            }
+
+            // Biến lưu trữ các điểm tham chiếu sau khi đã được căn chỉnh (biến đổi)
+            Point2f[] transformedPoints;
+
+            // Cần ít nhất 4 cặp điểm để tính toán ma trận biến đổi Affine
+            if (srcPoints.Count >= 4)
+            {
+                // [THUẬT TOÁN CỐT LÕI]: EstimateAffinePartial2D
+                using var inliers = new Mat();
+
+                // Sử dụng InputArray.Create hoặc Mat.FromArray để đảm bảo đúng kiểu dữ liệu
+                using var transformMatrix = Cv2.EstimateAffinePartial2D(
+                        InputArray.Create(srcPoints.ToArray()),
+                        InputArray.Create(dstPoints.ToArray()),
+                        inliers);
+
+                if (!transformMatrix.Empty())
+                {
+                    // Chuyển đổi toàn bộ ReferencePoints gốc sang Mat
+                    var originalPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
+
+                    using var srcMat = Mat.FromArray(originalPoints);
+                    using var dstMat = new Mat();
+
+                    // Cv2.Transform(src, dst, matrix) trả về void, kết quả nằm trong dst
+                    Cv2.Transform(srcMat, dstMat, transformMatrix);
+
+                    // Chuyển kết quả từ Mat về mảng Point2f
+                    transformedPoints = new Point2f[originalPoints.Length];
+                    dstMat.GetArray(out transformedPoints);
+                }
+                else
+                {
+                    // Nếu không tính được ma trận, dùng tọa độ gốc
+                    transformedPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
+                }
+            }
+            else
+            {
+                // Fallback: Nếu không tìm thấy đủ điểm tương đồng, giữ nguyên tọa độ gốc
+                transformedPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
+            }
+
+            // =========================================================
+            // BƯỚC 3: KIỂM TRA TẠI TỌA ĐỘ MỚI (ĐÃ CĂN CHỈNH)
+            // =========================================================
+            for (int i = 0; i < transformedPoints.Length; i++)
+            {
+                var pt = transformedPoints[i];
+
+                // Kiểm tra độ tối (Intensity) tại vị trí đã được bù trừ (Zoom/Shift)
+                bool isBallPresent = CheckIntensityAtPoint(src, new Point(pt.X, pt.Y), recipe.BallRadiusPx, recipe.FixedThreshold);
+
+                resultShapes.Add(new OverlayShape
+                {
+                    X = pt.X,
+                    Y = pt.Y,
+                    Diameter = recipe.BallRadiusPx * 2,
+                    State = isBallPresent ? "OK" : "NG",
+                    // Hiển thị thông tin tọa độ để debug nếu cần
+                    TooltipInfo = isBallPresent ? $"OK ({pt.X:F0},{pt.Y:F0})" : "Missing"
+                });
+            }
+
+            return resultShapes;
+        }
+        /*public List<OverlayShape> InspectFixedGridWithAlignment(string imagePath, Recipe recipe)
+        {
+            var resultShapes = new List<OverlayShape>();
+
+            // 1. Kiểm tra dữ liệu đầu vào
+            if (recipe.ReferencePoints == null || recipe.ReferencePoints.Count == 0)
+                return resultShapes;
+
+            using var src = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
+            if (src.Empty()) return resultShapes;
+
+            // =========================================================
+            // BƯỚC 1: TỰ ĐỘNG CĂN CHỈNH (ALIGNMENT)
+            // =========================================================
             double shiftX = 0;
             double shiftY = 0;
 
-            // --- Bắt đầu đoạn tính độ lệch ---
-            var currentBlobs = AutoDetectAllBallsOpenCV(imagePath, recipe); // Scan nhanh để tìm mốc
+            // Tạo một Recipe "Dễ tính" (Relaxed) để dò tìm ball ngay cả khi ảnh bị rung/mờ
+            var alignRecipe = new Recipe
+            {
+                // Copy các thông số quan trọng
+                MinBallAreaPx = (int)(recipe.MinBallAreaPx * 0.8), // Cho phép nhỏ hơn chút
+                MaxBallAreaPx = (int)(recipe.MaxBallAreaPx * 1.2), // Cho phép to hơn chút (do nhòe)
+
+                // [QUAN TRỌNG] Giảm độ tròn xuống thấp để bắt được ball bị méo do rung
+                MinCircularity = 0.4,
+
+                // Luôn dùng Adaptive để bắt điểm tốt nhất
+                UseAdaptiveThreshold = true,
+                AutoThreshold = recipe.AutoThreshold,
+                MorphKernelSize = recipe.MorphKernelSize,
+                BallRadiusPx = recipe.BallRadiusPx,
+
+                // ROI giữ nguyên
+                RoiX = recipe.RoiX,
+                RoiY = recipe.RoiY,
+                RoiWidth = recipe.RoiWidth,
+                RoiHeight = recipe.RoiHeight
+            };
+
+            // Quét nhanh để tìm các điểm mốc hiện tại
+            var currentBlobs = AutoDetectAllBallsOpenCV(imagePath, alignRecipe);
+
             if (currentBlobs.Count > 0)
             {
                 var deltasX = new List<double>();
                 var deltasY = new List<double>();
 
+                // Duyệt qua tất cả các điểm mẫu (Reference Points)
                 foreach (var refPt in recipe.ReferencePoints)
                 {
                     // Tìm điểm thực tế gần nhất với điểm mẫu
                     var nearest = currentBlobs.MinBy(b => Math.Pow(b.X - refPt.X, 2) + Math.Pow(b.Y - refPt.Y, 2));
+
                     if (nearest != null)
                     {
                         double dist = Math.Sqrt(Math.Pow(nearest.X - refPt.X, 2) + Math.Pow(nearest.Y - refPt.Y, 2));
-                        if (dist < recipe.BallRadiusPx) // Chỉ chấp nhận nếu lệch ít
+
+                        // [CẢI TIẾN] Tăng phạm vi tìm kiếm lên 2.0 lần bán kính (thay vì 1.0)
+                        // Giúp bắt được các trường hợp bị trôi xa do rung lắc mạnh
+                        if (dist < recipe.BallRadiusPx * 2.0)
                         {
                             deltasX.Add(nearest.X - refPt.X);
                             deltasY.Add(nearest.Y - refPt.Y);
                         }
                     }
                 }
-                // Lấy trung vị (Median) để ra độ lệch chuẩn xác nhất
+
+                // Lấy trung vị (Median) để loại bỏ nhiễu
                 if (deltasX.Count > 0)
                 {
-                    deltasX.Sort(); deltasY.Sort();
+                    deltasX.Sort();
+                    deltasY.Sort();
+
+                    // Lấy giá trị giữa danh sách (Median) là độ lệch đáng tin cậy nhất
                     shiftX = deltasX[deltasX.Count / 2];
                     shiftY = deltasY[deltasY.Count / 2];
                 }
             }
-            // --- Kết thúc đoạn tính độ lệch ---
 
-            // 3. VẼ LẠI TOÀN BỘ BALL MẪU VÀ KIỂM TRA MÀU SẮC
+            // =========================================================
+            // BƯỚC 2: VẼ LẠI VÀ KIỂM TRA (INSPECTION)
+            // =========================================================
             foreach (var refPt in recipe.ReferencePoints)
             {
-                // Tọa độ kiểm tra = Tọa độ mẫu + Độ lệch (Alignment)
+                // Áp dụng độ lệch vừa tính được
                 double checkX = refPt.X + shiftX;
                 double checkY = refPt.Y + shiftY;
 
-                // Kiểm tra độ tối tại vị trí này
+                // Kiểm tra OK/NG tại vị trí mới
+                // Lưu ý: Dùng recipe gốc (nghiêm ngặt) để kiểm tra độ tối
                 bool isBallPresent = CheckIntensityAtPoint(src, new Point(checkX, checkY), recipe.BallRadiusPx, recipe.FixedThreshold);
 
                 resultShapes.Add(new OverlayShape
                 {
                     X = checkX,
                     Y = checkY,
-                    Diameter = recipe.BallRadiusPx * 2,
-                    State = isBallPresent ? "OK" : "NG", // Xanh hoặc Đỏ
-                    TooltipInfo = isBallPresent ? "Pass" : "Missing/Void"
+                    Diameter = recipe.BallRadiusPx * 2, // Kích thước hiển thị theo chuẩn
+                    State = isBallPresent ? "OK" : "NG",
+                    TooltipInfo = isBallPresent ? $"Pass (Shift: {shiftX:F1}, {shiftY:F1})" : "Missing/Void"
                 });
             }
 
             return resultShapes;
-        }
+        }*/
 
         // Hàm kiểm tra độ tối tại 1 điểm (Cực nhanh & Đơn giản)
         private bool CheckIntensityAtPoint(Mat img, Point center, int radius, double threshold)

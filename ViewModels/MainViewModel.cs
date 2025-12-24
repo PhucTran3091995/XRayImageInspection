@@ -87,23 +87,26 @@ namespace WpfXrayQA.ViewModels
 
         [ObservableProperty] private double teachDiameter = 30; // Mặc định 30px (Radius = 15)
 
-        // --- 1. THÊM THUỘC TÍNH TÊN RECIPE ĐỂ NHẬP TAY ---
+        // --- THUỘC TÍNH TÊN RECIPE ĐỂ NHẬP TAY ---
         [ObservableProperty] private string newRecipeName = "";
 
+        //  thuộc tính bật/tắt chế độ thêm thủ công
+        [ObservableProperty] private bool isAddBallMode = false;
 
-/*        // 1. Tự động chạy lại Scan khi thay đổi thông số Threshold
-        partial void OnFixedThresholdValChanged(int value) => AutoDetectBalls();
-        partial void OnAdaptiveParamCChanged(int value) => AutoDetectBalls();
-        partial void OnUseAdaptiveChanged(bool value) => AutoDetectBalls();
 
-        // 2. Tự động chạy lại khi thay đổi bộ lọc hình dạng
-        partial void OnMinAreaChanged(int value) => AutoDetectBalls();
-        partial void OnMaxAreaChanged(int value) => AutoDetectBalls();
-        partial void OnMinCircularityChanged(double value) => AutoDetectBalls();
+        /*        // 1. Tự động chạy lại Scan khi thay đổi thông số Threshold
+                partial void OnFixedThresholdValChanged(int value) => AutoDetectBalls();
+                partial void OnAdaptiveParamCChanged(int value) => AutoDetectBalls();
+                partial void OnUseAdaptiveChanged(bool value) => AutoDetectBalls();
 
-        // 3. Tự động chạy lại khi thay đổi vùng ROI
-        partial void OnRoiWidthChanged(double value) => AutoDetectBalls();
-        partial void OnRoiHeightChanged(double value) => AutoDetectBalls();*/
+                // 2. Tự động chạy lại khi thay đổi bộ lọc hình dạng
+                partial void OnMinAreaChanged(int value) => AutoDetectBalls();
+                partial void OnMaxAreaChanged(int value) => AutoDetectBalls();
+                partial void OnMinCircularityChanged(double value) => AutoDetectBalls();
+
+                // 3. Tự động chạy lại khi thay đổi vùng ROI
+                partial void OnRoiWidthChanged(double value) => AutoDetectBalls();
+                partial void OnRoiHeightChanged(double value) => AutoDetectBalls();*/
 
         private Point _startPoint; // Điểm bắt đầu click chuột
 
@@ -571,6 +574,45 @@ namespace WpfXrayQA.ViewModels
                     MessageBox.Show($"Lỗi load program: {ex.Message}");
                 }
             }
+        }
+
+        [RelayCommand]
+        private void ToggleAddBallMode()
+        {
+            IsAddBallMode = !IsAddBallMode;
+
+            // Tắt chế độ vẽ ROI nếu đang bật để tránh xung đột
+            if (IsAddBallMode) IsDrawMode = false;
+
+            TeachStatus = IsAddBallMode ? "Chế độ thêm thủ công: Hãy Click vào vị trí ball thiếu." : "Đã tắt chế độ thêm.";
+        }
+
+        // 3. Hàm xử lý logic thêm Ball (Gọi từ View)
+        public void AddManualBall(Point p)
+        {
+            // Lấy đường kính người dùng đang cài đặt
+            double diameter = TeachDiameter;
+            if (diameter <= 0) diameter = TeachRadius * 2;
+
+            // Tạo đối tượng Ball mới
+            var newBall = new OverlayShape
+            {
+                X = p.X,
+                Y = p.Y,
+                Diameter = diameter,
+                IsFoundByBlob = false, // Đánh dấu là do người dùng thêm
+                State = "OK",
+                TooltipInfo = "Manual Added"
+            };
+
+            // Thêm vào danh sách hiển thị
+            TeachOverlayShapes.Add(newBall);
+
+            // Cập nhật lại số lượng
+            TargetCount = TeachOverlayShapes.Count;
+            AnalyzeResult(TeachOverlayShapes.Count, TargetCount);
+
+            TeachStatus = $"Đã thêm thủ công tại: {p.X:F0}, {p.Y:F0}";
         }
 
         // Trong MainViewModel.cs
