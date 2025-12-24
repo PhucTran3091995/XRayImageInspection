@@ -5,222 +5,522 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:WpfXrayQA.ViewModels"
         mc:Ignorable="d"
-        Title="WPF QA X-ray App (GD Only)" Height="768" Width="1024">
-        <Window.Resources>
-            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
-        </Window.Resources>
+        Title="WPF QA X-ray App (Professional Edition)" Height="800" Width="1200"
+        WindowStartupLocation="CenterScreen" Background="#F0F2F5" FontFamily="Segoe UI">
 
-    <TabControl>
-        <TabItem Header="Main Review">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="250"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="220"/>
-                </Grid.ColumnDefinitions>
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
 
-                <DockPanel Grid.Column="0" Margin="5">
-                    <TextBlock DockPanel.Dock="Top" Text="Pending (_1_8.jpg)" FontWeight="Bold" Margin="0,0,0,5"/>
-                    <ListBox ItemsSource="{Binding PendingFiles}" SelectedItem="{Binding SelectedFile}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Margin="2">
-                                    <TextBlock Text="{Binding FileName}" FontWeight="Bold" Foreground="Blue"/>
-                                    <TextBlock Text="{Binding ModelName}" FontSize="10"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </DockPanel>
+        <SolidColorBrush x:Key="PrimaryColor" Color="#0078D7"/>
+        <SolidColorBrush x:Key="SuccessColor" Color="#107C10"/>
+        <SolidColorBrush x:Key="WarningColor" Color="#FFB900"/>
+        <SolidColorBrush x:Key="DangerColor" Color="#D13438"/>
+        <SolidColorBrush x:Key="SurfaceColor" Color="White"/>
+        <SolidColorBrush x:Key="BorderColor" Color="#E1E1E1"/>
 
-                <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" Margin="5" ClipToBounds="True" Background="#EEE">
-                    <ScrollViewer x:Name="ImgScrollViewer" 
-                          HorizontalScrollBarVisibility="Hidden" 
-                          VerticalScrollBarVisibility="Hidden">
+        <DropShadowEffect x:Key="CardShadow" Color="Black" Direction="270" ShadowDepth="1" BlurRadius="6" Opacity="0.1"/>
 
-                        <Grid>
-                            <Image Source="{Binding CurrentImage}" Stretch="None"
-                               MouseWheel="Image_MouseWheel" 
-                               MouseDown="Image_MouseDown" 
-                               MouseUp="Image_MouseUp" 
-                               MouseMove="Image_MouseMove"
-                               RenderTransformOrigin="0.5,0.5">
-                                <Image.RenderTransform>
-                                    <ScaleTransform x:Name="ImgScale" ScaleX="1" ScaleY="1"/>
-                                </Image.RenderTransform>
-                            </Image>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource PrimaryColor}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="4" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.9"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Background" Value="#CCCCCC"/>
+                                <Setter Property="Foreground" Value="#888888"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-                            <ItemsControl ItemsSource="{Binding GridOverlayPoints}" IsHitTestVisible="False">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <Canvas Background="{x:Null}"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Ellipse Width="6" Height="6" Fill="Red" Margin="-3,-3">
-                                            <Ellipse.RenderTransform>
-                                                <TranslateTransform X="{Binding X}" Y="{Binding Y}"/>
-                                            </Ellipse.RenderTransform>
-                                        </Ellipse>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </Grid>
-                    </ScrollViewer>
-                </Border>
+        <Style TargetType="GroupBox">
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" FontWeight="Bold" Foreground="#333" Margin="0,0,0,5"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-                <StackPanel Grid.Column="2" Margin="10">
-                    <TextBlock Text="Status:" FontWeight="Bold"/>
-                    <TextBlock Text="{Binding MessageStatus}" Foreground="Red" TextWrapping="Wrap" Margin="0,0,0,20"/>
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceColor}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderColor}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Effect" Value="{StaticResource CardShadow}"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
 
-                    <Button Content="OK (PASS)" Command="{Binding SubmitOkCommand}" Background="LightGreen" Height="50" FontSize="18" FontWeight="Bold" Margin="0,5"/>
+        <Style TargetType="TabItem">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="15,10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border Name="Border" BorderThickness="0,0,0,3" BorderBrush="Transparent" Margin="0,0,5,0">
+                            <ContentPresenter x:Name="ContentSite"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"
+                                            ContentSource="Header"
+                                            Margin="12,8"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource PrimaryColor}"/>
+                                <Setter Property="Foreground" Value="{StaticResource PrimaryColor}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="False">
+                                <Setter Property="Foreground" Value="#666"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource PrimaryColor}"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-                    <Separator Margin="0,15"/>
+    </Window.Resources>
 
-                    <TextBlock Text="Defect Type:" FontWeight="Bold"/>
-                    <RadioButton Content="Short" IsChecked="{Binding IsShort}" Margin="0,5"/>
-                    <RadioButton Content="Missing" IsChecked="{Binding IsMissing}" Margin="0,5"/>
-                    <RadioButton Content="Both" IsChecked="{Binding IsBoth}" Margin="0,5"/>
+    <Grid>
+        <TabControl BorderThickness="0" Background="Transparent" Margin="10,0">
 
-                    <Button Content="NG (FAIL)" Command="{Binding SubmitNgCommand}" Background="#FFAAAA" Height="50" FontSize="18" FontWeight="Bold" Margin="0,10"/>
+            <TabItem Header="MAIN REVIEW">
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="280"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="260"/>
+                    </Grid.ColumnDefinitions>
 
-                    <Button Content="Need Re-run" Command="{Binding SubmitRerunCommand}" Background="LightYellow" Height="30" Margin="0,5"/>
+                    <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
 
-                    <TextBlock Text="Comment:" Margin="0,10,0,0"/>
-                    <TextBox Text="{Binding Comment}" Height="60" TextWrapping="Wrap" AcceptsReturn="True"/>
-                </StackPanel>
-            </Grid>
-        </TabItem>
-        <TabItem Header="Teach">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="320"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+                            <TextBlock Text="PENDING FILES" FontWeight="Bold" Foreground="#555" Margin="0,0,0,10"/>
 
-                <ScrollViewer Grid.Column="0">
-                    <StackPanel Margin="10">
-                        <TextBlock Text="AUTO INSPECTION CONFIG" FontSize="18" FontWeight="Bold" Foreground="DarkBlue" HorizontalAlignment="Center"/>
-                        <Separator Margin="0,10"/>
-
-                        <Button Content="⚡ SCAN (AUTO DETECT)" 
-                        Command="{Binding AutoDetectBallsCommand}" 
-                        Height="50" Background="OrangeRed" Foreground="White" FontWeight="Bold" FontSize="16" Margin="0,0,0,15"/>
-
-                        <TextBlock Text="{Binding TeachStatus}" FontWeight="Bold" Foreground="Blue" TextWrapping="Wrap" FontSize="14" Margin="0,0,0,10"/>
-
-                        <GroupBox Header="1. Shape Filter" Margin="0,5">
-                            <StackPanel Margin="5">
-                                <TextBlock Text="{Binding MinArea, StringFormat='Min Area: {0} px'}"/>
-                                <Slider Minimum="300" Maximum="1000" Value="{Binding MinArea}" IsSnapToTickEnabled="True" TickFrequency="10"/>
-
-                                <TextBlock Text="{Binding MaxArea, StringFormat='Max Area: {0} px'}" Margin="0,5,0,0"/>
-                                <Slider Minimum="500" Maximum="5000" Value="{Binding MaxArea}" IsSnapToTickEnabled="True" TickFrequency="100"/>
-
-                                <TextBlock Margin="0,5,0,0">
-                            <Run Text="Min Circularity: "/>
-                            <Run Text="{Binding MinCircularity, StringFormat=N2}"/>
-                            <Run Text=" (0.0 = Bắt hết)"/>
-                                </TextBlock>
-                                <Slider Minimum="0.0" Maximum="1.0" Value="{Binding MinCircularity}" TickFrequency="0.05" IsSnapToTickEnabled="True"/>
-                            </StackPanel>
-                        </GroupBox>
-
-                        <GroupBox Header="2. Threshold (Độ nhạy)" Margin="0,5">
-                            <StackPanel Margin="5">
-                                <CheckBox Content="Use Adaptive Threshold (Auto)" IsChecked="{Binding UseAdaptive}" FontWeight="Bold" Margin="0,0,0,5"/>
-
-                                <StackPanel Visibility="{Binding UseAdaptive, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                    <TextBlock Text="{Binding AdaptiveParamC, StringFormat='Sensitivity (ParamC): {0}'}"/>
-                                    <Slider Minimum="1" Maximum="50" Value="{Binding AdaptiveParamC}"/>
-                                    <TextBlock Text="(Càng nhỏ càng dễ bắt ball tối)" FontStyle="Italic" FontSize="10" Foreground="Gray"/>
-                                </StackPanel>
-
-                                <StackPanel Visibility="{Binding UseAdaptive, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}">
-                                    <TextBlock Text="{Binding FixedThresholdVal, StringFormat='Fixed Threshold: {0}'}" Margin="0,10,0,0"/>
-                                    <Slider Minimum="0" Maximum="255" Value="{Binding FixedThresholdVal}"/>
-                                    <TextBlock Text="(0=Đen, 255=Trắng. Kéo về khoảng 80-120)" FontStyle="Italic" FontSize="10" Foreground="Gray"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </GroupBox>
-
-                        <GroupBox Header="3. Advanced" Margin="0,5">
-                            <StackPanel Margin="5">
-                                <TextBlock Text="{Binding MorphKernel, StringFormat='Morph Kernel Size: {0}'}"/>
-                                <Slider Minimum="1" Maximum="9" Value="{Binding MorphKernel}" TickFrequency="2" IsSnapToTickEnabled="True"/>
-                                <TextBlock Text="(1 = Tắt lọc nhiễu. Tăng lên nếu nhiều nhiễu hạt)" FontStyle="Italic" FontSize="10" Foreground="Gray" TextWrapping="Wrap"/>
-
-                                <Separator Margin="0,10"/>
-                                <TextBlock Text="Target Blob Count (Chuẩn):"/>
-                                <TextBox Text="{Binding TargetCount}" FontWeight="Bold" TextAlignment="Center"/>
-                            </StackPanel>
-                        </GroupBox>
-
-                    </StackPanel>
-                </ScrollViewer>
-
-                <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" Margin="5" Background="Black" ClipToBounds="True">
-                    <ScrollViewer x:Name="TeachScrollViewer" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden">
-                        <Grid x:Name="ZoomContainer" 
-                              Width="{Binding CurrentImage.PixelWidth}"   
-                              Height="{Binding CurrentImage.PixelHeight}"
-                              MouseWheel="Image_MouseWheel" 
-                              MouseDown="Image_MouseDown" 
-                              MouseMove="Image_MouseMove" 
-                              MouseUp="Image_MouseUp">
-
-                            <Grid.RenderTransform>
-                                <ScaleTransform x:Name="TeachImgScale" ScaleX="1" ScaleY="1"/>
-                            </Grid.RenderTransform>
-
-                            <Image x:Name="TeachImage" Source="{Binding CurrentImage}" Stretch="None"/>
-
-                            <ItemsControl ItemsSource="{Binding GridOverlayShapes}" IsHitTestVisible="True">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <Canvas Background="{x:Null}"/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-
-                                <ItemsControl.ItemContainerStyle>
-                                    <Style TargetType="ContentPresenter">
-                                        <Setter Property="Canvas.Left" Value="{Binding Left}"/>
-                                        <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                            <ListBox Grid.Row="1" ItemsSource="{Binding PendingFiles}" SelectedItem="{Binding SelectedFile}" 
+                                     BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Margin" Value="0,2"/>
+                                        <Setter Property="Padding" Value="5"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="Bd" CornerRadius="4" Background="Transparent" BorderThickness="1" BorderBrush="Transparent" Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#E6F2FA"/>
+                                                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryColor}"/>
+                                                        </Trigger>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Bd" Property="Background" Value="#F2F2F2"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
                                     </Style>
-                                </ItemsControl.ItemContainerStyle>
-
-                                <ItemsControl.ItemTemplate>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Ellipse Width="{Binding Diameter}" Height="{Binding Diameter}" 
-                                             Stroke="Lime" StrokeThickness="1"
-                                             Fill="Transparent"
-                                             ToolTip="{Binding TooltipInfo}">
-                                            <Ellipse.InputBindings>
-                                                <MouseBinding Gesture="RightClick" 
-                                                  Command="{Binding DataContext.RemoveOverlayCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                  CommandParameter="{Binding}"/>
-                                            </Ellipse.InputBindings>
-                                        </Ellipse>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" Foreground="#333"/>
+                                                <TextBlock Text="{Binding AutoSummary}" FontSize="11" Foreground="#888"/>
+                                            </StackPanel>
+
+                                            <Border Grid.Column="1" CornerRadius="10" Padding="8,2" Margin="5,0,0,0" MinWidth="50">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#E0E0E0"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding AutoDecision}" Value="OK">
+                                                                <Setter Property="Background" Value="{StaticResource SuccessColor}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding AutoDecision}" Value="NG">
+                                                                <Setter Property="Background" Value="{StaticResource DangerColor}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding AutoDecision}" FontWeight="Bold" Foreground="White" 
+                                                           HorizontalAlignment="Center" FontSize="10"/>
+                                            </Border>
+                                        </Grid>
                                     </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
                         </Grid>
-                    </ScrollViewer>
+                    </Border>
+
+                    <Border Grid.Column="1" BorderBrush="Gray" BorderThickness="1" Margin="5" ClipToBounds="True" Background="#1E1E1E">
+                        <ScrollViewer x:Name="ImgScrollViewer" 
+                  HorizontalScrollBarVisibility="Hidden" 
+                  VerticalScrollBarVisibility="Hidden">
+
+                            <Grid x:Name="MainZoomContainer"
+              MouseWheel="Image_MouseWheel" 
+              MouseDown="Image_MouseDown" 
+              MouseUp="Image_MouseUp" 
+              MouseMove="Image_MouseMove">
+
+                                <Grid.RenderTransform>
+                                    <ScaleTransform x:Name="ImgScale" ScaleX="1" ScaleY="1"/>
+                                </Grid.RenderTransform>
+
+                                <Image Source="{Binding CurrentImage}" Stretch="None"/>
+
+                                <ItemsControl ItemsSource="{Binding GridOverlayShapes}" IsHitTestVisible="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas Background="{x:Null}"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                                            <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Ellipse Width="{Binding Diameter}" Height="{Binding Diameter}" 
+                                                 Stroke="{Binding StrokeBrush}" 
+                                                 StrokeThickness="{Binding StrokeThickness}" 
+                                                 Fill="Transparent"
+                                                 ToolTip="{Binding TooltipInfo}"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
+
+                    <StackPanel Grid.Column="2">
+                        <Border Style="{StaticResource CardStyle}" Padding="10">
+                            <StackPanel>
+                                <TextBlock Text="PROGRAM CONTROL" FontWeight="Bold" Foreground="#777" FontSize="11" Margin="0,0,0,5"/>
+                                <TextBlock Text="{Binding ActiveRecipeName}" FontWeight="Bold" Foreground="{StaticResource PrimaryColor}" 
+                                           TextWrapping="Wrap" Margin="0,0,0,10" FontSize="14"/>
+                                <Button Content="📂 LOAD PROGRAM" Command="{Binding LoadProgramCommand}" 
+                                        Background="#E6F2FA" Foreground="{StaticResource PrimaryColor}" BorderBrush="{StaticResource PrimaryColor}" BorderThickness="1"/>
+                                <TextBlock Text="Auto-apply to list" FontSize="10" Foreground="#999" HorizontalAlignment="Center" Margin="0,5,0,0" FontStyle="Italic"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}" Padding="10">
+                            <StackPanel>
+                                <TextBlock Text="BATCH FILTER" FontWeight="Bold" Foreground="#777" FontSize="11" Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0" Content="SHOW NG" Command="{Binding FilterNgCommand}" 
+                                            Background="{StaticResource DangerColor}" Margin="0,0,2,0"/>
+                                    <Button Grid.Column="1" Content="SHOW ALL" Command="{Binding ClearFilterCommand}" 
+                                            Background="#999" Margin="2,0,0,0"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}" Padding="10">
+                            <StackPanel>
+                                <TextBlock Text="MANUAL VERIFY" FontWeight="Bold" Foreground="#777" FontSize="11" Margin="0,0,0,5"/>
+                                <TextBlock Text="{Binding MessageStatus}" Foreground="{StaticResource DangerColor}" TextWrapping="Wrap" Margin="0,0,0,10" FontSize="12"/>
+
+                                <Button Content="CONFIRM OK" Command="{Binding SubmitOkCommand}" Background="{StaticResource SuccessColor}" Height="40" Margin="0,0,0,8"/>
+                                <Button Content="CONFIRM NG" Command="{Binding SubmitNgCommand}" Background="{StaticResource DangerColor}" Height="40" Margin="0,0,0,15"/>
+
+                                <TextBlock Text="Defect Type" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <RadioButton Content="Short" IsChecked="{Binding IsShort}" Margin="0,0,10,0"/>
+                                    <RadioButton Content="Missing" IsChecked="{Binding IsMissing}" Margin="0,0,10,0"/>
+                                    <RadioButton Content="Both" IsChecked="{Binding IsBoth}"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Comment" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                <TextBox Text="{Binding Comment}" Height="60" TextWrapping="Wrap" AcceptsReturn="True" 
+                                         Padding="5" BorderBrush="{StaticResource BorderColor}" VerticalContentAlignment="Top"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="TEACH (CONFIG)">
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="340"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource CardStyle}" Margin="5,5,10,5">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="15">
+                                <TextBlock Text="AUTO INSPECTION CONFIG" FontSize="16" FontWeight="Bold" Foreground="#333" HorizontalAlignment="Center" Margin="0,0,0,15"/>
+
+                                <Border Background="{Binding ResultColor}" CornerRadius="8" Padding="15" Margin="0,0,0,20">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="Black" BlurRadius="10" ShadowDepth="3" Opacity="0.2"/>
+                                    </Border.Effect>
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding ResultDecision}" FontSize="48" FontWeight="Black" Foreground="White" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="{Binding ResultDetail}" FontSize="16" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" Opacity="0.9"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <Grid Margin="0,0,0,20">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="10"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Button Grid.Column="0" Content="▶ APPLY SETTINGS" Command="{Binding AutoDetectBallsCommand}" 
+                                Height="40" Background="{StaticResource PrimaryColor}" FontWeight="Bold"
+                                ToolTip="Bấm nút này để áp dụng các thông số bên dưới và chạy kiểm tra"/>
+
+                                    <Button Grid.Column="2" Content="📂 LOAD TO EDIT" Command="{Binding LoadRecipeToTeachCommand}" 
+                                Height="40" Background="#607D8B" Foreground="White" FontWeight="Bold"/>
+                                </Grid>
+
+                                <GroupBox Header="1. Shape Filter" Margin="0,0,0,15" Padding="5">
+                                    <StackPanel>
+                                        <Grid Margin="0,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="40"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Min Area" VerticalAlignment="Center" Foreground="#555"/>
+                                            <Slider Grid.Column="1" Minimum="50" Maximum="1000" Value="{Binding MinArea}" Margin="10,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding MinArea}" VerticalAlignment="Center" FontWeight="Bold"/>
+                                        </Grid>
+                                        <Grid Margin="0,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="40"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Max Area" VerticalAlignment="Center" Foreground="#555"/>
+                                            <Slider Grid.Column="1" Minimum="1001" Maximum="5000" Value="{Binding MaxArea}" Margin="10,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding MaxArea}" VerticalAlignment="Center" FontWeight="Bold"/>
+                                        </Grid>
+                                        <Grid Margin="0,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="40"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Circularity" VerticalAlignment="Center" Foreground="#555"/>
+                                            <Slider Grid.Column="1" Minimum="0.1" Maximum="1.0" Value="{Binding MinCircularity}" TickFrequency="0.05" Margin="10,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding MinCircularity, StringFormat=N2}" VerticalAlignment="Center" FontWeight="Bold"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </GroupBox>
+
+                                <GroupBox Header="2. Threshold" Margin="0,5">
+                                    <StackPanel Margin="5">
+                                        <CheckBox Content="Use Adaptive Threshold" IsChecked="{Binding UseAdaptive}" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                                        <StackPanel Visibility="{Binding UseAdaptive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Text="{Binding AdaptiveParamC, StringFormat='Sensitivity (ParamC): {0}'}"/>
+                                            <Slider Minimum="1" Maximum="50" Value="{Binding AdaptiveParamC}" Margin="0,5"/>
+                                        </StackPanel>
+
+                                        <StackPanel Visibility="{Binding UseAdaptive, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}">
+                                            <TextBlock Text="{Binding FixedThresholdVal, StringFormat='Fixed Threshold: {0}'}"/>
+                                            <Slider Minimum="0" Maximum="255" Value="{Binding FixedThresholdVal}" Margin="0,5"/>
+                                            <TextBlock Text="Kéo về 0 = Đen, 255 = Trắng" FontSize="10" FontStyle="Italic" Foreground="Gray"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </GroupBox>
+
+                                <GroupBox Header="3. Advanced &amp; Geometry" Margin="0,0,0,15" Padding="5">
+                                    <StackPanel>
+                                        <TextBlock Text="Ball Diameter (px)" FontWeight="SemiBold" Foreground="#555"/>
+                                        <Grid Margin="0,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="50"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Slider Minimum="10" Maximum="100" Value="{Binding TeachDiameter}" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,0,10,0"/>
+                                            <TextBox Grid.Column="1" Text="{Binding TeachDiameter, UpdateSourceTrigger=PropertyChanged}" FontWeight="Bold" TextAlignment="Center"/>
+                                        </Grid>
+
+                                        <Separator Margin="0,5"/>
+
+                                        <TextBlock Text="Morph Kernel Size" Foreground="#555"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="30"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Slider Minimum="1" Maximum="9" Value="{Binding MorphKernel}" TickFrequency="2" IsSnapToTickEnabled="True" Margin="0,5,10,5"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding MorphKernel}" VerticalAlignment="Center" FontWeight="Bold"/>
+                                        </Grid>
+
+                                        <Separator Margin="0,10"/>
+
+                                        <TextBlock Text="Target Ball Count (Standard)" FontWeight="Bold" Foreground="{StaticResource DangerColor}" Margin="0,0,0,5"/>
+                                        <TextBox Text="{Binding TargetCount, UpdateSourceTrigger=PropertyChanged}" FontSize="18" FontWeight="Bold" TextAlignment="Center" Padding="5" BorderBrush="{StaticResource PrimaryColor}" BorderThickness="2"/>
+                                    </StackPanel>
+                                </GroupBox>
+
+                                <GroupBox Header="4. Area of Interest (ROI)" Margin="0,5">
+                                    <StackPanel Margin="5">
+                                        <DockPanel LastChildFill="False">
+                                            <ToggleButton Content="✏️ DRAW ROI" IsChecked="{Binding IsDrawMode}" Height="30" Width="100" Background="White" DockPanel.Dock="Left"/>
+                                            <Button Content="❌ CLEAR" Command="{Binding ClearRoiCommand}" Height="30" Width="80" Background="#DDD" DockPanel.Dock="Right"/>
+                                        </DockPanel>
+                                        <TextBlock Text="Chỉ tìm ball trong khung vàng." FontSize="10" FontStyle="Italic" Margin="0,2"/>
+                                    </StackPanel>
+                                </GroupBox>
+
+                                <Separator Margin="0,10,0,15"/>
+
+                                <TextBlock Text="Recipe Name (Model ID)" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                <TextBox Text="{Binding NewRecipeName, UpdateSourceTrigger=PropertyChanged}" 
+                             Height="35" FontSize="14" VerticalContentAlignment="Center" Padding="5"
+                             BorderBrush="{StaticResource PrimaryColor}" BorderThickness="1" Margin="0,0,0,10"
+                             ToolTip="Nhập tên Model hoặc mã sản phẩm mới để lưu"/>
+
+                                <Button Content="💾 SAVE RECIPE" Command="{Binding SaveRecipeCommand}" 
+                            Height="45" Background="{StaticResource WarningColor}" Foreground="#333" FontSize="16" Margin="0,0,0,5">
+                                    <Button.Effect>
+                                        <DropShadowEffect Color="Black" Opacity="0.2" ShadowDepth="2"/>
+                                    </Button.Effect>
+                                </Button>
+                                <TextBlock Text="* Hãy nhập tên và bấm Apply trước khi lưu." Foreground="#888" FontStyle="Italic" HorizontalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+
+                    <Border Grid.Column="1" Style="{StaticResource CardStyle}" Background="Black" ClipToBounds="True" Margin="0,5,5,5">
+                        <ScrollViewer x:Name="TeachScrollViewer" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden">
+                            <Grid x:Name="ZoomContainer" 
+                      Width="{Binding CurrentImage.PixelWidth}"   
+                      Height="{Binding CurrentImage.PixelHeight}"
+                      MouseWheel="Image_MouseWheel" 
+                      MouseDown="Image_MouseDown" 
+                      MouseMove="Image_MouseMove" 
+                      MouseUp="Image_MouseUp">
+
+                                <Grid.RenderTransform>
+                                    <ScaleTransform x:Name="TeachImgScale" ScaleX="1" ScaleY="1"/>
+                                </Grid.RenderTransform>
+
+                                <Image x:Name="TeachImage" Source="{Binding CurrentImage}" Stretch="None"/>
+
+                                <Canvas IsHitTestVisible="False">
+                                    <Rectangle Canvas.Left="{Binding RoiLeft}"
+                                   Canvas.Top="{Binding RoiTop}"
+                                   Width="{Binding RoiWidth}"
+                                   Height="{Binding RoiHeight}"
+                                   Visibility="{Binding RoiVisibility}"
+                                   Stroke="Gold" 
+                                   StrokeThickness="2" 
+                                   StrokeDashArray="4 2"
+                                   Fill="Transparent"/>
+                                </Canvas>
+
+                                <ItemsControl ItemsSource="{Binding TeachOverlayShapes}" IsHitTestVisible="True">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas Background="Transparent"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style TargetType="ContentPresenter">
+                                            <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                                            <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Ellipse Width="{Binding Diameter}" Height="{Binding Diameter}" 
+                                         Stroke="{Binding StrokeBrush}" 
+                                         StrokeThickness="{Binding StrokeThickness}" 
+                                         Fill="Transparent"
+                                         ToolTip="{Binding TooltipInfo}">
+                                                <Ellipse.InputBindings>
+                                                    <MouseBinding Gesture="RightClick" 
+                                                      Command="{Binding DataContext.RemoveOverlayCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                      CommandParameter="{Binding}"/>
+                                                </Ellipse.InputBindings>
+                                            </Ellipse>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="SETTINGS">
+                <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Left" VerticalAlignment="Top" Width="600" Margin="20">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Application Settings" FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
+
+                        <TextBlock Text="Root Paths (Watch Folders)" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding SettingRootPaths}" Height="150" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" 
+                                 Padding="5" BorderBrush="{StaticResource BorderColor}" Margin="0,0,0,20"/>
+
+                        <Button Content="Save Settings" Command="{Binding SaveSettingsCommand}" Width="150" HorizontalAlignment="Left" Background="{StaticResource PrimaryColor}"/>
+
+                        <Separator Margin="0,30,0,10"/>
+
+                        <TextBlock Text="Testing Instructions" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <StackPanel Margin="10,0,0,0">
+                            <TextBlock Text="1. Create folder: C:\FakeXRayData\20251222\ModelTest\GD\" Margin="0,0,0,5"/>
+                            <TextBlock Text="2. Copy images and rename with suffix _1_8.jpg" Margin="0,0,0,5"/>
+                            <TextBlock Text="3. Paste 'C:\FakeXRayData' above and Save."/>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
-            </Grid>
-        </TabItem>
-        <TabItem Header="Settings">
-            <StackPanel Margin="20">
-                <TextBlock Text="Root Paths (Mỗi dòng 1 đường dẫn - VD: X:\)" FontWeight="Bold"/>
-                <TextBox Text="{Binding SettingRootPaths}" Height="150" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Margin="0,5,0,10"/>
-                <Button Content="Save Settings" Command="{Binding SaveSettingsCommand}" Width="150" HorizontalAlignment="Left"/>
-                
-                <TextBlock Text="Hướng dẫn Test:" FontWeight="Bold" Margin="0,20,0,5"/>
-                <TextBlock Text="1. Tạo folder: C:\FakeXRayData\20251222\ModelTest\GD\"/>
-                <TextBlock Text="2. Copy file ảnh vào và đổi tên thành đuôi _1_8.jpg (VD: 20251222120000_1_8.jpg)"/>
-                <TextBlock Text="3. Paste 'C:\FakeXRayData' vào ô trên và bấm Save."/>
-            </StackPanel>
-        </TabItem>
-    </TabControl>
+            </TabItem>
+
+        </TabControl>
+    </Grid>
 </Window>

@@ -50,5 +50,17 @@ namespace WpfXrayQA.Models
             var dyY = (Cy - By) / denomY;
             return (dxX, dxY, dyX, dyY);
         }
+
+        // Thêm 4 thuộc tính xác định vùng ROI
+        public int RoiX { get; set; } = 0;
+        public int RoiY { get; set; } = 0;
+        public int RoiWidth { get; set; } = 0;
+        public int RoiHeight { get; set; } = 0;
+
+        // Hàm kiểm tra xem có đang dùng ROI không (Nếu Width > 0 là có)
+        public bool HasRoi() => RoiWidth > 0 && RoiHeight > 0;
+
+        // Lưu danh sách tọa độ chuẩn từ ảnh Teach
+        public List<System.Windows.Point> ReferencePoints { get; set; } = new();
     }
 }

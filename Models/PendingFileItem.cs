@@ -1,9 +1,11 @@
 ﻿using System;
 using System.IO;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
-namespace WpfXrayQA.Models // <-- Đã sửa namespace
+namespace WpfXrayQA.Models
 {
-    public class PendingFileItem
+    public class PendingFileItem : INotifyPropertyChanged
     {
         // --- Thông tin File cơ bản ---
         public string FullPath { get; set; }
@@ -21,9 +23,12 @@ namespace WpfXrayQA.Models // <-- Đã sửa namespace
         public int AutoShortCount { get; set; } = 0;
 
         // Chuỗi hiển thị tóm tắt trên UI
-        public string AutoSummary => !AutoInspected
-            ? ""
-            : $"{AutoDecision} {AutoDefectType} (M:{AutoMissingCount}, S:{AutoShortCount})";
+        private string _autoSummary = "";
+        public string AutoSummary
+        {
+            get => _autoSummary;
+            set => SetProperty(ref _autoSummary, value); // Đảm bảo có 'set' để gán được giá trị
+        }
 
         // Màu sắc hiển thị (Optional: Xanh=OK, Đỏ=NG)
         public string StatusColor => AutoDecision == "OK" ? "Green" : (AutoDecision == "NG" ? "Red" : "Gray");
@@ -56,6 +61,16 @@ namespace WpfXrayQA.Models // <-- Đã sửa namespace
                 }
             }
             catch { }
+        }
+
+        // --- INotifyPropertyChanged implementation ---
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string propertyName = null)
+        {
+            if (Equals(storage, value)) return false;
+            storage = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            return true;
         }
     }
 }

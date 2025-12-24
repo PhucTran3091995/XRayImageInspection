@@ -36,31 +36,44 @@ namespace WpfXrayQA.Views
         }
         private void Image_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            var container = sender as Grid;
-            var vm = this.DataContext as MainViewModel;
+            var element = sender as DependencyObject;
+            if (element == null) return;
 
-            if (vm != null)
+            var vm = DataContext as MainViewModel;
+            if (vm == null) return;
+
+            // Grid bao ngoài (container)
+            var container = sender as IInputElement;
+
+            // 1. NẾU ĐANG Ở CHẾ ĐỘ VẼ ROI
+            if (vm.IsDrawMode && e.LeftButton == MouseButtonState.Pressed)
             {
-                // Nếu bạn muốn giữ khả năng click trên ảnh để xử lý gì đó trong tương lai:
-                if (TeachImage != null && TeachImage.Source != null)
+                Point p = e.GetPosition(TeachImage); // Lấy tọa độ trên ảnh
+                vm.StartDrawing(p);
+
+                // [SỬA LỖI] Dùng container để Capture chuột thay vì TeachImage
+                // Để khớp với điều kiện kiểm tra ở MouseMove
+                if (container != null)
                 {
-                    Point p = e.GetPosition(TeachImage);
-                    double pixelX = p.X * (TeachImage.Source.Width / TeachImage.ActualWidth);
-                    double pixelY = p.Y * (TeachImage.Source.Height / TeachImage.ActualHeight);
-                    Point actualPixel = new Point(pixelX, pixelY);
+                    container.CaptureMouse();
                 }
+                return;
             }
 
-            // 2. Chế độ thường: Pan (Kéo thả) - GIỮ NGUYÊN ĐOẠN NÀY
+            // 2. Logic Pan (Kéo thả ảnh)
             if (e.ChangedButton == MouseButton.Left)
             {
-                var scrollViewer = FindParent<ScrollViewer>(container);
+                var scrollViewer = FindParent<ScrollViewer>(element);
                 if (scrollViewer != null)
                 {
                     _start = e.GetPosition(scrollViewer);
                     _origin = new Point(scrollViewer.HorizontalOffset, scrollViewer.VerticalOffset);
-                    container.CaptureMouse();
-                    container.Cursor = Cursors.Hand;
+
+                    if (container != null)
+                    {
+                        container.CaptureMouse();
+                        if (sender is FrameworkElement fe) fe.Cursor = Cursors.Hand;
+                    }
                 }
             }
         }
@@ -68,7 +81,21 @@ namespace WpfXrayQA.Views
         private void Image_MouseMove(object sender, MouseEventArgs e)
         {
             var container = sender as Grid;
-            if (container != null && container.IsMouseCaptured)
+
+            // Kiểm tra Capture an toàn hơn: Nếu chuột trái không nhấn thì không làm gì
+            if (container == null || e.LeftButton != MouseButtonState.Pressed) return;
+
+            var vm = this.DataContext as MainViewModel;
+            if (vm == null) return;
+
+            // TRƯỜNG HỢP 1: ĐANG TRONG CHẾ ĐỘ VẼ ROI
+            if (vm.IsDrawMode)
+            {
+                Point currentPos = e.GetPosition(TeachImage);
+                vm.UpdateDrawing(currentPos);
+            }
+            // TRƯỜNG HỢP 2: CHẾ ĐỘ DI CHUYỂN ẢNH (PAN)
+            else if (container.IsMouseCaptured) // Chỉ Pan khi Grid thực sự giữ chuột
             {
                 var scrollViewer = FindParent<ScrollViewer>(container);
                 if (scrollViewer != null)
@@ -84,27 +111,56 @@ namespace WpfXrayQA.Views
         private void Image_MouseUp(object sender, MouseButtonEventArgs e)
         {
             var container = sender as Grid;
-            if (container != null)
+            if (container == null) return;
+
+            var vm = this.DataContext as MainViewModel;
+
+            // 1. KẾT THÚC VẼ ROI
+            if (vm != null && vm.IsDrawMode)
             {
-                container.ReleaseMouseCapture();
-                container.Cursor = Cursors.Arrow;
+                vm.EndDrawing();
             }
+
+            // 2. GIẢI PHÓNG CHUỘT (Cho cả Vẽ và Pan)
+            container.ReleaseMouseCapture();
+            container.Cursor = Cursors.Arrow;
         }
         private static T FindParent<T>(DependencyObject child) where T : DependencyObject
         {
+            // [FIX QUAN TRỌNG] Kiểm tra null ngay đầu vào để tránh crash
+            if (child == null) return null;
+
             while (true)
             {
-                // Đi ngược lên cây giao diện để tìm cha
-                DependencyObject parentObject = System.Windows.Media.VisualTreeHelper.GetParent(child);
+                try
+                {
+                    // VisualTreeHelper.GetParent sẽ ném lỗi nếu child không phải là Visual hoặc Visual3D
+                    // Nên ta cần kiểm tra loại đối tượng hoặc bọc try-catch để an toàn tuyệt đối
+                    if (!(child is System.Windows.Media.Visual || child is System.Windows.Media.Media3D.Visual3D))
+                    {
+                        // Nếu không phải Visual, thử dùng LogicalTree (dự phòng)
+                        DependencyObject logicalParent = LogicalTreeHelper.GetParent(child);
+                        if (logicalParent == null) return null;
+                        child = logicalParent;
+                        continue;
+                    }
 
-                // Nếu không tìm thấy (đã lên đỉnh) -> trả về null
-                if (parentObject == null) return null;
+                    DependencyObject parentObject = VisualTreeHelper.GetParent(child);
 
-                // Nếu tìm thấy cha đúng kiểu mong muốn -> trả về
-                if (parentObject is T parent) return parent;
+                    // Nếu không tìm thấy (đã lên đỉnh) -> trả về null
+                    if (parentObject == null) return null;
 
-                // Tiếp tục tìm lên trên
-                child = parentObject;
+                    // Nếu tìm thấy cha đúng kiểu mong muốn -> trả về
+                    if (parentObject is T parent) return parent;
+
+                    // Tiếp tục tìm lên trên
+                    child = parentObject;
+                }
+                catch
+                {
+                    // Nếu có bất kỳ lỗi gì khi leo cây giao diện, trả về null thay vì crash app
+                    return null;
+                }
             }
         }
     }
