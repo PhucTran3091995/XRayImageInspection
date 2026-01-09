@@ -16,18 +16,53 @@ namespace WpfXrayQA.Models
         public long FileSize { get; set; }
 
         // --- Kết quả Auto Inspection (Step 2) ---
-        public bool AutoInspected { get; set; } = false;
-        public string AutoDecision { get; set; } = "";     // OK/NG
-        public string AutoDefectType { get; set; } = "";   // Missing/Short
-        public int AutoMissingCount { get; set; } = 0;
-        public int AutoShortCount { get; set; } = 0;
+        private bool _autoInspected = false;
+        public bool AutoInspected
+        {
+            get => _autoInspected;
+            set => SetProperty(ref _autoInspected, value);
+        }
+
+        private string _autoDecision = "WAIT"; // OK/NG/NO_RECIPE
+        public string AutoDecision
+        {
+            get => _autoDecision;
+            set
+            {
+                if (SetProperty(ref _autoDecision, value))
+                {
+                    OnPropertyChanged(nameof(StatusColor));
+                }
+            }
+        }
+
+        private string _autoDefectType = ""; // Missing/Short
+        public string AutoDefectType
+        {
+            get => _autoDefectType;
+            set => SetProperty(ref _autoDefectType, value);
+        }
+
+        private int _autoMissingCount = 0;
+        public int AutoMissingCount
+        {
+            get => _autoMissingCount;
+            set => SetProperty(ref _autoMissingCount, value);
+        }
+
+        private int _autoShortCount = 0;
+        public int AutoShortCount
+        {
+            get => _autoShortCount;
+            set => SetProperty(ref _autoShortCount, value);
+        }
 
         // Chuỗi hiển thị tóm tắt trên UI
         private string _autoSummary = "";
         public string AutoSummary
         {
             get => _autoSummary;
-            set => SetProperty(ref _autoSummary, value); // Đảm bảo có 'set' để gán được giá trị
+            set => SetProperty(ref _autoSummary, value);
         }
 
         // Màu sắc hiển thị (Optional: Xanh=OK, Đỏ=NG)
@@ -65,11 +100,16 @@ namespace WpfXrayQA.Models
 
         // --- INotifyPropertyChanged implementation ---
         public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
         protected bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string propertyName = null)
         {
             if (Equals(storage, value)) return false;
             storage = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            OnPropertyChanged(propertyName);
             return true;
         }
     }

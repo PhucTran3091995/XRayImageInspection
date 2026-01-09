@@ -13,6 +13,10 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using WpfXrayQA.Models;
 using WpfXrayQA.Services;
+using OpenCvSharp;
+using WpfPoint = System.Windows.Point;
+using CvRect = OpenCvSharp.Rect;
+using CvPoint = OpenCvSharp.Point;
 
 namespace WpfXrayQA.ViewModels
 {
@@ -28,7 +32,7 @@ namespace WpfXrayQA.ViewModels
         // --- UI Properties ---
         [ObservableProperty] private BitmapImage? currentImage;
         [ObservableProperty] private PendingFileItem? selectedFile;
-        [ObservableProperty] private string settingRootPaths = @"D:\FakeXRayData";
+        [ObservableProperty] private string settingRootPaths = @"D:\FakeXrayData - Copy";
         [ObservableProperty] private string messageStatus = "Ready";
 
         // Manual Input
@@ -51,7 +55,7 @@ namespace WpfXrayQA.ViewModels
         [ObservableProperty] private double teachMissingThres = 120; // > 120 là sáng (mất ball)
         [ObservableProperty] private double teachBridgeThres = 60;   // < 60 là tối (dính thiếc)
 
-        [ObservableProperty] private int minArea = 50;   // Diện tích tối thiểu để lọc ball nhỏ
+        [ObservableProperty] private int minArea = 300;   // Diện tích tối thiểu để lọc ball nhỏ
         [ObservableProperty] private int maxArea = 1500; // Diện tích tối đa để lọc linh kiện to
         [ObservableProperty] private int adaptiveBlockSize = 21; // Kích thước vùng tính ngưỡng thích nghi
         [ObservableProperty] private int adaptiveParamC = 10;
@@ -59,6 +63,8 @@ namespace WpfXrayQA.ViewModels
         // Threshold
         [ObservableProperty] private bool useAdaptive = true;
         [ObservableProperty] private int fixedThresholdVal = 100;
+        // [MỚI] Void Threshold
+        [ObservableProperty] private double voidThreshold = 30;
 
         // Morphology
         [ObservableProperty] private int morphKernel = 3; // Mặc định nhỏ (3) để ít làm biến dạng
@@ -108,7 +114,9 @@ namespace WpfXrayQA.ViewModels
                 partial void OnRoiWidthChanged(double value) => AutoDetectBalls();
                 partial void OnRoiHeightChanged(double value) => AutoDetectBalls();*/
 
-        private Point _startPoint; // Điểm bắt đầu click chuột
+        private WpfPoint _startPoint; // Điểm bắt đầu click chuột
+
+        [ObservableProperty] private int selectedRotationIndex = 0;
 
         // [MỚI] View để hỗ trợ lọc (Filter) danh sách Pending
         public ICollectionView PendingFilesView { get; }
@@ -266,16 +274,7 @@ namespace WpfXrayQA.ViewModels
                 }
                 else
                 {
-                    // Nếu chưa có Recipe chuẩn -> Chạy Auto Detect (Preview)
-                    // Lúc này tất cả sẽ màu XANH (vì chưa có chuẩn để so sánh)
-                    try
-                    {
-                        var points = _engine.AutoDetectAllBallsOpenCV(value.FullPath, _tempRecipe);
-                        GridOverlayShapes.Clear();
-                        foreach (var p in points) GridOverlayShapes.Add(p);
-                        MessageStatus = $"Preview Mode: Found {points.Count} balls (No Recipe)";
-                    }
-                    catch { }
+                    MessageStatus = "Vui lòng LOAD PROGRAM để bắt đầu kiểm tra.";
                 }
 
                 // Luôn clear màn hình Teach để tránh nhầm lẫn
@@ -381,6 +380,8 @@ namespace WpfXrayQA.ViewModels
                 _tempRecipe.UseAdaptiveThreshold = UseAdaptive;
                 _tempRecipe.AutoThreshold = AdaptiveParamC;
                 _tempRecipe.FixedThreshold = FixedThresholdVal;
+                // [MỚI] Lưu VoidThreshold
+                _tempRecipe.VoidThreshold = VoidThreshold;
 
                 // 5. Lưu thông số nâng cao & Kích thước Ball
                 _tempRecipe.MorphKernelSize = MorphKernel;
@@ -403,7 +404,7 @@ namespace WpfXrayQA.ViewModels
                 if (TeachOverlayShapes.Count > 0)
                 {
                     _tempRecipe.ReferencePoints = TeachOverlayShapes
-                        .Select(shape => new Point(shape.X, shape.Y))
+                        .Select(shape => new System.Windows.Point(shape.X, shape.Y))
                         .ToList();
 
                     _tempRecipe.TargetBallCount = _tempRecipe.ReferencePoints.Count;
@@ -415,12 +416,39 @@ namespace WpfXrayQA.ViewModels
                                         "Cảnh báo", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.No)
                         return;
 
-                    _tempRecipe.ReferencePoints = new List<Point>();
+                    _tempRecipe.ReferencePoints = new List<System.Windows.Point>();
                     _tempRecipe.TargetBallCount = 0;
                 }
 
                 // 9. Thực hiện lưu xuống file JSON
                 _recipeStore.Save(_tempRecipe);
+
+                // [MỚI] Lưu ảnh Template (Mẫu) để so lệch (Template Matching)
+                if (SelectedFile != null && File.Exists(SelectedFile.FullPath))
+                {
+                    using var src = Cv2.ImRead(SelectedFile.FullPath, ImreadModes.Grayscale);
+                    if (!src.Empty())
+                    {
+                        // Chọn vùng Template: Mặc định lấy 200x200 tại chính giữa ROI
+                        int tw = 200; int th = 200;
+                        int tx = _tempRecipe.RoiX + (_tempRecipe.RoiWidth / 2) - (tw / 2);
+                        int ty = _tempRecipe.RoiY + (_tempRecipe.RoiHeight / 2) - (th / 2);
+
+                        // Đảm bảo không tràn viền ảnh
+                        tx = Math.Max(0, Math.Min(tx, src.Width - tw));
+                        ty = Math.Max(0, Math.Min(ty, src.Height - th));
+
+                        _tempRecipe.TemplateX = tx; _tempRecipe.TemplateY = ty;
+                        _tempRecipe.TemplateWidth = tw; _tempRecipe.TemplateHeight = th;
+
+                        var templateRoi = new CvRect(tx, ty, tw, th);
+                        using var templateMat = new Mat(src, templateRoi);
+                        templateMat.SaveImage(_recipeStore.GetTemplatePath(_tempRecipe.RecipeId));
+
+                        // Lưu lại lần nữa để cập nhật thông tin TemplateX/Y vào JSON
+                        _recipeStore.Save(_tempRecipe);
+                    }
+                }
 
                 // [TỐI ƯU WORKFLOW] Cập nhật ngay Recipe hiện hành
                 _activeManualRecipe = _tempRecipe;
@@ -430,7 +458,7 @@ namespace WpfXrayQA.ViewModels
                 MessageBox.Show($"Đã lưu Recipe thành công!\n" +
                                 $"- Model: {_tempRecipe.RecipeId}\n" +
                                 $"- Số lượng Ball chuẩn: {_tempRecipe.TargetBallCount}\n" +
-                                $"- Bán kính Ball: {_tempRecipe.BallRadiusPx}px",
+                                $"- Đã tạo ảnh mẫu (Template) thành công!",
                                 "Lưu thành công", MessageBoxButton.OK, MessageBoxImage.Information);
 
                 // Cập nhật trạng thái thanh Status Bar
@@ -504,6 +532,7 @@ namespace WpfXrayQA.ViewModels
             _tempRecipe.UseAdaptiveThreshold = UseAdaptive;
             _tempRecipe.AutoThreshold = AdaptiveParamC;
             _tempRecipe.FixedThreshold = FixedThresholdVal;
+            _tempRecipe.VoidThreshold = VoidThreshold;
             _tempRecipe.MorphKernelSize = MorphKernel;
             _tempRecipe.BallRadiusPx = TeachRadius;
 
@@ -588,7 +617,7 @@ namespace WpfXrayQA.ViewModels
         }
 
         // 3. Hàm xử lý logic thêm Ball (Gọi từ View)
-        public void AddManualBall(Point p)
+        public void AddManualBall(System.Windows.Point p)
         {
             // Lấy đường kính người dùng đang cài đặt
             double diameter = TeachDiameter;
@@ -627,7 +656,7 @@ namespace WpfXrayQA.ViewModels
 
             await Task.Run(() =>
             {
-                foreach (var item in PendingFiles)
+                foreach (var item in PendingFiles.ToList())
                 {
                     try
                     {
@@ -647,7 +676,7 @@ namespace WpfXrayQA.ViewModels
 
                         item.AutoSummary = $"{item.AutoDecision} {item.AutoDefectType}";
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         item.AutoDecision = "ERR";
                         item.AutoSummary = "Error";
@@ -726,42 +755,73 @@ namespace WpfXrayQA.ViewModels
 
                     if (loadedRecipe != null)
                     {
-                        // Map ngược dữ liệu từ Recipe vào các biến UI (ViewModel)
-                        NewRecipeName = loadedRecipe.RecipeId; // Điền sẵn tên cũ
-
-                        // Shape Filter
+                        // 1. Map thông số cấu hình vào UI
+                        NewRecipeName = loadedRecipe.RecipeId;
                         MinArea = loadedRecipe.MinBallAreaPx;
                         MaxArea = loadedRecipe.MaxBallAreaPx;
                         MinCircularity = loadedRecipe.MinCircularity;
-
-                        // Threshold
                         UseAdaptive = loadedRecipe.UseAdaptiveThreshold;
                         AdaptiveParamC = (int)loadedRecipe.AutoThreshold;
                         FixedThresholdVal = loadedRecipe.FixedThreshold;
-
-                        // Advanced
+                        VoidThreshold = loadedRecipe.VoidThreshold;
                         MorphKernel = loadedRecipe.MorphKernelSize;
-                        TeachDiameter = loadedRecipe.BallRadiusPx * 2; // Tính lại đường kính
+                        TeachDiameter = loadedRecipe.BallRadiusPx * 2;
                         TargetCount = loadedRecipe.TargetBallCount;
 
-                        // ROI (Vùng quan tâm)
+                        // 2. Map vùng ROI
                         if (loadedRecipe.HasRoi())
                         {
-                            RoiLeft = loadedRecipe.RoiX;
-                            RoiTop = loadedRecipe.RoiY;
-                            RoiWidth = loadedRecipe.RoiWidth;
-                            RoiHeight = loadedRecipe.RoiHeight;
+                            RoiLeft = loadedRecipe.RoiX; RoiTop = loadedRecipe.RoiY;
+                            RoiWidth = loadedRecipe.RoiWidth; RoiHeight = loadedRecipe.RoiHeight;
                             RoiVisibility = Visibility.Visible;
-                            IsDrawMode = false;
                         }
                         else
                         {
                             RoiVisibility = Visibility.Collapsed;
-                            RoiWidth = 0;
-                            RoiHeight = 0;
                         }
 
-                        MessageBox.Show($"Đã load thông số từ Recipe: {loadedRecipe.RecipeId}.\nNhấn 'APPLY SETTINGS' để xem kết quả.", "Load thành công");
+                        // 3. [XỬ LÝ MỚI] Căn chỉnh vị trí Ball (Alignment)
+                        // Kiểm tra xem có ảnh nào đang được chọn để Teach không
+                        if (SelectedFile != null && File.Exists(SelectedFile.FullPath))
+                        {
+                            try
+                            {
+                                // Gọi thuật toán Inspection để tự động căn chỉnh tọa độ Ball theo ảnh hiện tại
+                                var alignedShapes = _engine.InspectFixedGridWithAlignment(SelectedFile.FullPath, loadedRecipe);
+
+                                Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    TeachOverlayShapes.Clear();
+                                    foreach (var shape in alignedShapes)
+                                    {
+                                        // Cập nhật Diameter theo UI hiện tại để dễ nhìn
+                                        shape.Diameter = TeachDiameter;
+
+                                        // Trong màn hình Teach, ta cần hiện tất cả (kể cả NG) để user biết mà chỉnh
+                                        // Đánh dấu IsFoundByBlob = true để biết đây là ball từ thuật toán
+                                        shape.IsFoundByBlob = true;
+
+                                        TeachOverlayShapes.Add(shape);
+                                    }
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                // Nếu thuật toán Alignment lỗi, fallback về load tọa độ gốc
+                                MessageBox.Show($"Lỗi Alignment: {ex.Message}. Đang load tọa độ gốc.");
+                                LoadOriginalPointsOnly(loadedRecipe);
+                            }
+                        }
+                        else
+                        {
+                            // Nếu chưa chọn ảnh nào, chỉ load tọa độ gốc từ file JSON
+                            LoadOriginalPointsOnly(loadedRecipe);
+                        }
+
+                        // 4. Cập nhật trạng thái phán định
+                        AnalyzeResult(TeachOverlayShapes.Count, TargetCount);
+
+                        TeachStatus = $"Đã load Recipe: {loadedRecipe.RecipeId}. Vị trí ball đã được căn chỉnh theo ảnh.";
                     }
                 }
                 catch (Exception ex)
@@ -771,8 +831,31 @@ namespace WpfXrayQA.ViewModels
             }
         }
 
+        // Hàm phụ trợ: Chỉ load tọa độ gốc (dùng khi không có ảnh hoặc lỗi Alignment)
+        private void LoadOriginalPointsOnly(Recipe recipe)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                TeachOverlayShapes.Clear();
+                if (recipe.ReferencePoints != null)
+                {
+                    foreach (var pt in recipe.ReferencePoints)
+                    {
+                        TeachOverlayShapes.Add(new OverlayShape
+                        {
+                            X = pt.X,
+                            Y = pt.Y,
+                            Diameter = TeachDiameter,
+                            State = "OK",
+                            IsFoundByBlob = true
+                        });
+                    }
+                }
+            });
+        }
+
         // --- CÁC HÀM XỬ LÝ CHUỘT (GỌI TỪ VIEW) ---
-        public void StartDrawing(Point p)
+        public void StartDrawing(System.Windows.Point p)
         {
             if (!IsDrawMode) return;
 
@@ -784,7 +867,7 @@ namespace WpfXrayQA.ViewModels
             RoiVisibility = Visibility.Visible;
         }
 
-        public void UpdateDrawing(Point p)
+        public void UpdateDrawing(System.Windows.Point p)
         {
             if (!IsDrawMode || RoiVisibility != Visibility.Visible) return;
 

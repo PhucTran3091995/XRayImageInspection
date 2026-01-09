@@ -23,6 +23,12 @@ namespace WpfXrayQA.Services
             return Path.Combine(_rootDir, safeName + ".json");
         }
 
+        public string GetTemplatePath(string recipeId)
+        {
+            string safeName = Sanitize(recipeId);
+            return Path.Combine(_rootDir, safeName + "_Template.png");
+        }
+
         public void Save(Recipe recipe)
         {
             if (string.IsNullOrWhiteSpace(recipe.RecipeId)) return;

@@ -2,11 +2,13 @@
 using System.Collections.Generic;
 using WpfXrayQA.Models;
 using System.Windows.Media;
+using System.IO;
 
 namespace WpfXrayQA.Services
 {
     public sealed class InspectionEngine
     {
+        private readonly YoloObbService _yoloService = new YoloObbService();
         public List<OverlayShape> AutoDetectAllBallsOpenCV(string imagePath, Recipe recipe)
         {
             var shapes = new List<OverlayShape>();
@@ -183,12 +185,12 @@ namespace WpfXrayQA.Services
 
                 foreach (var ball in allBalls)
                 {
-                    var directions = new Point[]
+                    var directions = new OpenCvSharp.Point[]
                     {
-                        new Point(ball.X - pitch, ball.Y),
-                        new Point(ball.X + pitch, ball.Y),
-                        new Point(ball.X, ball.Y - pitch),
-                        new Point(ball.X, ball.Y + pitch)
+                        new OpenCvSharp.Point(ball.X - pitch, ball.Y),
+                        new OpenCvSharp.Point(ball.X + pitch, ball.Y),
+                        new OpenCvSharp.Point(ball.X, ball.Y - pitch),
+                        new OpenCvSharp.Point(ball.X, ball.Y + pitch)
                     };
 
                     foreach (var p in directions)
@@ -223,7 +225,7 @@ namespace WpfXrayQA.Services
         }
 
         // Hàm phụ trợ: Kiểm tra vị trí đã có ball chưa
-        private bool IsLocationOccupied(Point p, List<OverlayShape> balls, double radius)
+        private bool IsLocationOccupied(OpenCvSharp.Point p, List<OverlayShape> balls, double radius)
         {
             foreach (var b in balls)
             {
@@ -233,7 +235,7 @@ namespace WpfXrayQA.Services
             return false;
         }
 
-        private bool IsValidBallAtLocation(Mat img, Point p, Recipe recipe)
+        private bool IsValidBallAtLocation(Mat img, OpenCvSharp.Point p, Recipe recipe)
         {
             // Kiểm tra biên ảnh
             if (p.X < 0 || p.Y < 0 || p.X >= img.Width || p.Y >= img.Height) return false;
@@ -243,8 +245,8 @@ namespace WpfXrayQA.Services
             int r = (int)(recipe.BallRadiusPx * 1.3);
             if (r < 5) r = 10;
 
-            var imgRect = new Rect(0, 0, img.Width, img.Height);
-            var roiRect = new Rect((int)p.X - r, (int)p.Y - r, r * 2, r * 2);
+            var imgRect = new OpenCvSharp.Rect(0, 0, img.Width, img.Height);
+            var roiRect = new OpenCvSharp.Rect((int)p.X - r, (int)p.Y - r, r * 2, r * 2);
             var validRoi = imgRect.Intersect(roiRect);
 
             if (validRoi.Width <= 0 || validRoi.Height <= 0) return false;
@@ -288,241 +290,172 @@ namespace WpfXrayQA.Services
 
         // Trong file InspectionEngine.cs
 
+        // Trong file InspectionEngine.cs
+
         public List<OverlayShape> InspectFixedGridWithAlignment(string imagePath, Recipe recipe)
         {
             var resultShapes = new List<OverlayShape>();
-
-            if (recipe.ReferencePoints == null || recipe.ReferencePoints.Count == 0)
-                return resultShapes;
-
             using var src = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
             if (src.Empty()) return resultShapes;
 
-            // =========================================================
-            // BƯỚC 1: DÒ TÌM CÁC ĐIỂM MỐC (RELAXED SEARCH)
-            // =========================================================
-            // Tạo Recipe dễ tính để bắt được ball ngay cả khi bị rung/méo
-            var alignRecipe = new Recipe
+            // 1. Tìm tất cả các Blob thực tế trên ảnh (Dùng làm mốc)
+            var detectedBlobs = AutoDetectAllBallsOpenCV(imagePath, recipe);
+
+            // Nếu không tìm thấy đủ ball, trả về lỗi ngay
+            if (detectedBlobs.Count < 4) return FallbackToOriginal(recipe);
+
+            // --- [THUẬT TOÁN MỚI] CENTROID ALIGNMENT (CĂN CHỈNH TRỌNG TÂM) ---
+
+            // A. Tính trọng tâm của đám Ball thực tế trên ảnh
+            double sumX = 0, sumY = 0;
+            foreach (var b in detectedBlobs) { sumX += b.X; sumY += b.Y; }
+            Point2f blobCenter = new Point2f((float)(sumX / detectedBlobs.Count), (float)(sumY / detectedBlobs.Count));
+
+            // B. Tính trọng tâm của lưới Ball mẫu (Recipe)
+            double refSumX = 0, refSumY = 0;
+            foreach (var p in recipe.ReferencePoints) { refSumX += p.X; refSumY += p.Y; }
+            Point2f refCenter = new Point2f((float)(refSumX / recipe.ReferencePoints.Count), (float)(refSumY / recipe.ReferencePoints.Count));
+
+            // C. Tính vector dịch chuyển để 2 tâm trùng nhau
+            float shiftToCenterX = blobCenter.X - refCenter.X;
+            float shiftToCenterY = blobCenter.Y - refCenter.Y;
+
+            // 2. LOGIC MATCHPOINTS: Thử ướm 4 hướng quanh TRỌNG TÂM MỚI
+            double bestScore = -1;
+            List<Point2f> bestSrcPoints = new List<Point2f>();
+            List<Point2f> bestDstPoints = new List<Point2f>();
+
+            double[] angles = { 0, 90, 180, 270 };
+
+            foreach (var angle in angles)
             {
-                MinBallAreaPx = (int)(recipe.MinBallAreaPx * 0.5), // Chấp nhận nhỏ hơn
-                MaxBallAreaPx = (int)(recipe.MaxBallAreaPx * 1.5), // Chấp nhận to hơn (do zoom)
-                MinCircularity = 0.4, // Chấp nhận méo
-                UseAdaptiveThreshold = true,
-                AutoThreshold = recipe.AutoThreshold,
-                MorphKernelSize = recipe.MorphKernelSize,
-                BallRadiusPx = recipe.BallRadiusPx,
-                // Copy vùng ROI
-                RoiX = recipe.RoiX,
-                RoiY = recipe.RoiY,
-                RoiWidth = recipe.RoiWidth,
-                RoiHeight = recipe.RoiHeight
-            };
+                // Tạo bản sao giả định: Dịch về tâm -> Xoay quanh tâm đó
+                var rotatedRefs = new List<Point2f>();
 
-            var currentBlobs = AutoDetectAllBallsOpenCV(imagePath, alignRecipe);
+                // Pre-calculate sin/cos
+                double rad = angle * Math.PI / 180.0;
+                float cos = (float)Math.Cos(rad);
+                float sin = (float)Math.Sin(rad);
 
-            // =========================================================
-            // BƯỚC 2: TÍNH TOÁN MA TRẬN BIẾN ĐỔI (SHIFT + ZOOM + ROTATE)
-            // =========================================================
-
-            // Danh sách cặp điểm: Nguồn (Recipe) -> Đích (Thực tế)
-            var srcPoints = new List<Point2f>();
-            var dstPoints = new List<Point2f>();
-
-            if (currentBlobs.Count > 0)
-            {
-                foreach (var refPt in recipe.ReferencePoints)
+                foreach (var p in recipe.ReferencePoints)
                 {
-                    // Tìm điểm thực tế gần nhất trong phạm vi cho phép
-                    // Cho phép lệch xa hơn (3 lần bán kính) để bắt được các điểm ở góc bị Zoom mạnh
-                    double searchRadius = recipe.BallRadiusPx * 3.0;
+                    // Bước 1: Dịch chuyển điểm mẫu theo vector trọng tâm đã tính
+                    // Để lưới mẫu nằm đè lên đám ball thực tế
+                    float tempX = (float)p.X + shiftToCenterX;
+                    float tempY = (float)p.Y + shiftToCenterY;
 
-                    var nearest = currentBlobs.MinBy(b => Math.Pow(b.X - refPt.X, 2) + Math.Pow(b.Y - refPt.Y, 2));
+                    // Bước 2: Xoay điểm đó quanh trọng tâm (blobCenter)
+                    float dx = tempX - blobCenter.X;
+                    float dy = tempY - blobCenter.Y;
+
+                    float xNew = blobCenter.X + (dx * cos - dy * sin);
+                    float yNew = blobCenter.Y + (dx * sin + dy * cos);
+
+                    rotatedRefs.Add(new Point2f(xNew, yNew));
+                }
+
+                // So khớp
+                int currentMatchCount = 0;
+                var tempSrc = new List<Point2f>();
+                var tempDst = new List<Point2f>();
+
+                // Dùng KD-Tree hoặc Grid Search sẽ nhanh hơn, nhưng Loop đơn giản vẫn ổn với < 2000 ball
+                // Tối ưu: Chỉ so sánh những điểm nằm trong vùng bounding box
+                for (int i = 0; i < rotatedRefs.Count; i++)
+                {
+                    var pRotated = rotatedRefs[i];
+
+                    // Tìm ball gần nhất
+                    var nearest = detectedBlobs.MinBy(b => Math.Pow(b.X - pRotated.X, 2) + Math.Pow(b.Y - pRotated.Y, 2));
 
                     if (nearest != null)
                     {
-                        double dist = Math.Sqrt(Math.Pow(nearest.X - refPt.X, 2) + Math.Pow(nearest.Y - refPt.Y, 2));
-                        if (dist < searchRadius)
+                        double dist = Math.Sqrt(Math.Pow(nearest.X - pRotated.X, 2) + Math.Pow(nearest.Y - pRotated.Y, 2));
+
+                        // Nếu khoảng cách < 2.5 lần bán kính (giảm nhẹ radius để khắt khe hơn)
+                        if (dist < recipe.BallRadiusPx * 2.5)
                         {
-                            srcPoints.Add(new Point2f((float)refPt.X, (float)refPt.Y));
-                            dstPoints.Add(new Point2f((float)nearest.X, (float)nearest.Y));
+                            // Lưu cặp điểm GỐC (chưa dịch, chưa xoay) và điểm THỰC TẾ
+                            var pOriginal = recipe.ReferencePoints[i];
+                            tempSrc.Add(new Point2f((float)pOriginal.X, (float)pOriginal.Y));
+                            tempDst.Add(new Point2f((float)nearest.X, (float)nearest.Y));
+                            currentMatchCount++;
                         }
                     }
                 }
-            }
 
-            // Biến lưu trữ các điểm tham chiếu sau khi đã được căn chỉnh (biến đổi)
-            Point2f[] transformedPoints;
-
-            // Cần ít nhất 4 cặp điểm để tính toán ma trận biến đổi Affine
-            if (srcPoints.Count >= 4)
-            {
-                // [THUẬT TOÁN CỐT LÕI]: EstimateAffinePartial2D
-                using var inliers = new Mat();
-
-                // Sử dụng InputArray.Create hoặc Mat.FromArray để đảm bảo đúng kiểu dữ liệu
-                using var transformMatrix = Cv2.EstimateAffinePartial2D(
-                        InputArray.Create(srcPoints.ToArray()),
-                        InputArray.Create(dstPoints.ToArray()),
-                        inliers);
-
-                if (!transformMatrix.Empty())
+                if (currentMatchCount > bestScore)
                 {
-                    // Chuyển đổi toàn bộ ReferencePoints gốc sang Mat
-                    var originalPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
-
-                    using var srcMat = Mat.FromArray(originalPoints);
-                    using var dstMat = new Mat();
-
-                    // Cv2.Transform(src, dst, matrix) trả về void, kết quả nằm trong dst
-                    Cv2.Transform(srcMat, dstMat, transformMatrix);
-
-                    // Chuyển kết quả từ Mat về mảng Point2f
-                    transformedPoints = new Point2f[originalPoints.Length];
-                    dstMat.GetArray(out transformedPoints);
-                }
-                else
-                {
-                    // Nếu không tính được ma trận, dùng tọa độ gốc
-                    transformedPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
+                    bestScore = currentMatchCount;
+                    bestSrcPoints = tempSrc;
+                    bestDstPoints = tempDst;
                 }
             }
-            else
+
+            // 3. Tính toán Ma trận biến đổi cuối cùng
+            // Yêu cầu số điểm khớp phải đạt ít nhất 10% tổng số ball (để tránh nhiễu)
+            if (bestSrcPoints.Count > recipe.ReferencePoints.Count * 0.1)
             {
-                // Fallback: Nếu không tìm thấy đủ điểm tương đồng, giữ nguyên tọa độ gốc
-                transformedPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
-            }
-
-            // =========================================================
-            // BƯỚC 3: KIỂM TRA TẠI TỌA ĐỘ MỚI (ĐÃ CĂN CHỈNH)
-            // =========================================================
-            for (int i = 0; i < transformedPoints.Length; i++)
-            {
-                var pt = transformedPoints[i];
-
-                // Kiểm tra độ tối (Intensity) tại vị trí đã được bù trừ (Zoom/Shift)
-                bool isBallPresent = CheckIntensityAtPoint(src, new Point(pt.X, pt.Y), recipe.BallRadiusPx, recipe.FixedThreshold);
-
-                resultShapes.Add(new OverlayShape
+                try
                 {
-                    X = pt.X,
-                    Y = pt.Y,
-                    Diameter = recipe.BallRadiusPx * 2,
-                    State = isBallPresent ? "OK" : "NG",
-                    // Hiển thị thông tin tọa độ để debug nếu cần
-                    TooltipInfo = isBallPresent ? $"OK ({pt.X:F0},{pt.Y:F0})" : "Missing"
-                });
+                    using var transformMatrix = Cv2.EstimateAffinePartial2D(
+                        InputArray.Create(bestSrcPoints),
+                        InputArray.Create(bestDstPoints));
+
+                    if (transformMatrix != null && !transformMatrix.Empty())
+                    {
+                        var originalPoints = recipe.ReferencePoints.Select(p => new Point2f((float)p.X, (float)p.Y)).ToArray();
+                        using var srcMat = Mat.FromArray(originalPoints);
+                        using var dstMat = new Mat();
+
+                        Cv2.Transform(srcMat, dstMat, transformMatrix);
+
+                        Point2f[] transformedPoints;
+                        dstMat.GetArray(out transformedPoints);
+
+                        for (int i = 0; i < transformedPoints.Length; i++)
+                        {
+                            var pt = transformedPoints[i];
+                            // Kiểm tra sắc độ tại vị trí mới
+                            bool isBallPresent = CheckIntensityAtPoint(src, new Point(pt.X, pt.Y), recipe.BallRadiusPx, recipe.FixedThreshold, recipe.VoidThreshold);
+
+                            resultShapes.Add(new OverlayShape
+                            {
+                                X = pt.X,
+                                Y = pt.Y,
+                                State = isBallPresent ? "OK" : "NG",
+                                Diameter = recipe.BallRadiusPx * 2,
+                                IsFoundByBlob = true
+                            });
+                        }
+
+                        // --- KẾT THÚC XỬ LÝ ---
+                        // Gọi thêm AI Check Short ở đây nếu cần
+                        return resultShapes;
+                    }
+                }
+                catch
+                {
+                    // Fallback nếu lỗi tính ma trận
+                }
             }
 
-            return resultShapes;
+            return FallbackToOriginal(recipe);
         }
-        /*public List<OverlayShape> InspectFixedGridWithAlignment(string imagePath, Recipe recipe)
+
+        // Hàm dự phòng: Trả về tọa độ gốc nếu không căn chỉnh được
+        private List<OverlayShape> FallbackToOriginal(Recipe recipe)
         {
-            var resultShapes = new List<OverlayShape>();
-
-            // 1. Kiểm tra dữ liệu đầu vào
-            if (recipe.ReferencePoints == null || recipe.ReferencePoints.Count == 0)
-                return resultShapes;
-
-            using var src = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
-            if (src.Empty()) return resultShapes;
-
-            // =========================================================
-            // BƯỚC 1: TỰ ĐỘNG CĂN CHỈNH (ALIGNMENT)
-            // =========================================================
-            double shiftX = 0;
-            double shiftY = 0;
-
-            // Tạo một Recipe "Dễ tính" (Relaxed) để dò tìm ball ngay cả khi ảnh bị rung/mờ
-            var alignRecipe = new Recipe
+            var list = new List<OverlayShape>();
+            foreach (var p in recipe.ReferencePoints)
             {
-                // Copy các thông số quan trọng
-                MinBallAreaPx = (int)(recipe.MinBallAreaPx * 0.8), // Cho phép nhỏ hơn chút
-                MaxBallAreaPx = (int)(recipe.MaxBallAreaPx * 1.2), // Cho phép to hơn chút (do nhòe)
-
-                // [QUAN TRỌNG] Giảm độ tròn xuống thấp để bắt được ball bị méo do rung
-                MinCircularity = 0.4,
-
-                // Luôn dùng Adaptive để bắt điểm tốt nhất
-                UseAdaptiveThreshold = true,
-                AutoThreshold = recipe.AutoThreshold,
-                MorphKernelSize = recipe.MorphKernelSize,
-                BallRadiusPx = recipe.BallRadiusPx,
-
-                // ROI giữ nguyên
-                RoiX = recipe.RoiX,
-                RoiY = recipe.RoiY,
-                RoiWidth = recipe.RoiWidth,
-                RoiHeight = recipe.RoiHeight
-            };
-
-            // Quét nhanh để tìm các điểm mốc hiện tại
-            var currentBlobs = AutoDetectAllBallsOpenCV(imagePath, alignRecipe);
-
-            if (currentBlobs.Count > 0)
-            {
-                var deltasX = new List<double>();
-                var deltasY = new List<double>();
-
-                // Duyệt qua tất cả các điểm mẫu (Reference Points)
-                foreach (var refPt in recipe.ReferencePoints)
-                {
-                    // Tìm điểm thực tế gần nhất với điểm mẫu
-                    var nearest = currentBlobs.MinBy(b => Math.Pow(b.X - refPt.X, 2) + Math.Pow(b.Y - refPt.Y, 2));
-
-                    if (nearest != null)
-                    {
-                        double dist = Math.Sqrt(Math.Pow(nearest.X - refPt.X, 2) + Math.Pow(nearest.Y - refPt.Y, 2));
-
-                        // [CẢI TIẾN] Tăng phạm vi tìm kiếm lên 2.0 lần bán kính (thay vì 1.0)
-                        // Giúp bắt được các trường hợp bị trôi xa do rung lắc mạnh
-                        if (dist < recipe.BallRadiusPx * 2.0)
-                        {
-                            deltasX.Add(nearest.X - refPt.X);
-                            deltasY.Add(nearest.Y - refPt.Y);
-                        }
-                    }
-                }
-
-                // Lấy trung vị (Median) để loại bỏ nhiễu
-                if (deltasX.Count > 0)
-                {
-                    deltasX.Sort();
-                    deltasY.Sort();
-
-                    // Lấy giá trị giữa danh sách (Median) là độ lệch đáng tin cậy nhất
-                    shiftX = deltasX[deltasX.Count / 2];
-                    shiftY = deltasY[deltasY.Count / 2];
-                }
+                list.Add(new OverlayShape { X = p.X, Y = p.Y, State = "NG", Diameter = recipe.BallRadiusPx * 2 });
             }
-
-            // =========================================================
-            // BƯỚC 2: VẼ LẠI VÀ KIỂM TRA (INSPECTION)
-            // =========================================================
-            foreach (var refPt in recipe.ReferencePoints)
-            {
-                // Áp dụng độ lệch vừa tính được
-                double checkX = refPt.X + shiftX;
-                double checkY = refPt.Y + shiftY;
-
-                // Kiểm tra OK/NG tại vị trí mới
-                // Lưu ý: Dùng recipe gốc (nghiêm ngặt) để kiểm tra độ tối
-                bool isBallPresent = CheckIntensityAtPoint(src, new Point(checkX, checkY), recipe.BallRadiusPx, recipe.FixedThreshold);
-
-                resultShapes.Add(new OverlayShape
-                {
-                    X = checkX,
-                    Y = checkY,
-                    Diameter = recipe.BallRadiusPx * 2, // Kích thước hiển thị theo chuẩn
-                    State = isBallPresent ? "OK" : "NG",
-                    TooltipInfo = isBallPresent ? $"Pass (Shift: {shiftX:F1}, {shiftY:F1})" : "Missing/Void"
-                });
-            }
-
-            return resultShapes;
-        }*/
+            return list;
+        }
 
         // Hàm kiểm tra độ tối tại 1 điểm (Cực nhanh & Đơn giản)
-        private bool CheckIntensityAtPoint(Mat img, Point center, int radius, double threshold)
+        private bool CheckIntensityAtPoint(Mat img, OpenCvSharp.Point center, int radius, double threshold, double voidThreshold)
         {
             // 1. Cắt vùng trung tâm của Ball (khoảng 60% bán kính)
             // Việc cắt nhỏ giúp loại bỏ ảnh hưởng của viền ball dính vào nền
@@ -536,7 +469,7 @@ namespace WpfXrayQA.Services
             if (x < 0 || y < 0 || x + 2 * r > img.Width || y + 2 * r > img.Height)
                 return false;
 
-            var roi = new Rect(x, y, r * 2, r * 2);
+            var roi = new OpenCvSharp.Rect(x, y, r * 2, r * 2);
             using var patch = new Mat(img, roi);
 
             // 2. PHÂN NGƯỠNG CỤC BỘ (Binarization)
@@ -552,11 +485,135 @@ namespace WpfXrayQA.Services
             double density = (blackPixels / totalPixels) * 100; // Đơn vị %
 
             // CHIẾN THUẬT PHÁN ĐỊNH:
-            // Nếu hơn 70% diện tích vùng trung tâm là màu tối -> Xác nhận có Ball (OK)
+            // Nếu hơn [voidThreshold]% diện tích vùng trung tâm là màu tối -> Xác nhận có Ball (OK)
             // Nếu vùng này chủ yếu là màu sáng (nền/void) -> NG
-            bool isBallPresent = density > 50;
+            bool isBallPresent = density > voidThreshold;
 
             return isBallPresent;
+        }
+
+        // File: InspectionEngine.cs
+
+        // [Thay thế toàn bộ hàm DetectShortCircuits và IsBridgeDark cũ bằng đoạn này]
+
+        public List<OverlayShape> DetectShortCircuits(Mat src, List<OverlayShape> balls, Recipe recipe)
+        {
+            var shorts = new List<OverlayShape>();
+            if (balls.Count < 2) return shorts;
+
+            // Khoảng cách để xét lân cận (3.5 lần bán kính ~ gần 2 ball cạnh nhau)
+            // Lưu ý: Code cũ của bạn để * 7 là quá xa, dễ bắt nhầm các ball hàng khác
+            double neighborDistThreshold = recipe.BallRadiusPx * 6.0;
+
+            // Ngưỡng phân định: Dưới mức này là Vật thể (Ball/Short/Component), Trên mức này là Nền
+            // Bạn nên chỉnh trong Recipe: Ball đen ~ 40, Nền trắng ~ 200.
+            // Thì Threshold nên là khoảng 100-120 để an toàn (hoặc dùng giá trị FixedThreshold của bạn)
+            double darkThreshold = recipe.FixedThreshold > 0 ? recipe.FixedThreshold : 100;
+
+            // Nếu muốn khắt khe hơn cho cầu nối (cầu nối thường mờ hơn ball chút), có thể giảm nhẹ
+            // double bridgeThreshold = darkThreshold * 0.9; 
+
+            for (int i = 0; i < balls.Count; i++)
+            {
+                for (int j = i + 1; j < balls.Count; j++)
+                {
+                    var b1 = balls[i];
+                    var b2 = balls[j];
+
+                    // 1. Lọc theo khoảng cách
+                    double dist = Math.Sqrt(Math.Pow(b1.X - b2.X, 2) + Math.Pow(b1.Y - b2.Y, 2));
+                    if (dist > neighborDistThreshold) continue;
+
+                    // 2. Tính toán điểm bắt đầu và kết thúc (ngay sát mép ball)
+                    // Lấy sát mép (90% bán kính) để tránh kiểm tra phần thân ball
+                    double margin = recipe.BallRadiusPx * 0.9;
+
+                    // Nếu 2 ball quá gần (dính chồng lên nhau) -> Short chắc chắn
+                    if (dist <= margin * 2)
+                    {
+                        AddShort(shorts, b1, b2, "Touch Overlap");
+                        continue;
+                    }
+
+                    // 3. [THUẬT TOÁN MỚI] Quét từng pixel trên đường thẳng (Scan Line Profile)
+                    if (IsContinuousDarkPath(src, new OpenCvSharp.Point(b1.X, b1.Y), new OpenCvSharp.Point(b2.X, b2.Y), margin, darkThreshold))
+                    {
+                        AddShort(shorts, b1, b2, "Bridge Detected");
+
+                        // Đánh dấu NG
+                        b1.State = "NG";
+                        b2.State = "NG";
+                    }
+                }
+            }
+            return shorts;
+        }
+
+        // Hàm phụ trợ để thêm vào danh sách (cho gọn code)
+        private void AddShort(List<OverlayShape> list, OverlayShape b1, OverlayShape b2, string msg)
+        {
+            list.Add(new OverlayShape
+            {
+                X = b1.X,
+                Y = b1.Y,
+                X2 = b2.X,
+                Y2 = b2.Y,
+                IsLine = true,
+                State = "SHORT",
+                TooltipInfo = msg
+            });
+        }
+
+        // [THAY ĐỔI CỐT LÕI] Kiểm tra tính liên tục của đường đen
+        private bool IsContinuousDarkPath(Mat img, OpenCvSharp.Point p1, OpenCvSharp.Point p2, double margin, double threshold)
+        {
+            // Tính vector chỉ phương
+            double dx = p2.X - p1.X;
+            double dy = p2.Y - p1.Y;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+
+            if (len == 0) return false;
+
+            double ux = dx / len;
+            double uy = dy / len;
+
+            // Xác định đoạn thẳng cần quét (nằm giữa 2 ball)
+            double startX = p1.X + ux * margin;
+            double startY = p1.Y + uy * margin;
+
+            // Quét đến sát mép ball kia
+            double endX = p2.X - ux * margin;
+            double endY = p2.Y - uy * margin;
+
+            // Số bước nhảy (quét từng pixel một để không bỏ sót khe hở nào)
+            double scanLength = len - (2 * margin);
+            if (scanLength <= 0) return true; // Dính sát sạt
+
+            int steps = (int)scanLength;
+
+            // QUÉT TỪNG PIXEL
+            for (int k = 0; k <= steps; k++)
+            {
+                int px = (int)(startX + (ux * k));
+                int py = (int)(startY + (uy * k));
+
+                // Check bounds
+                if (px < 0 || py < 0 || px >= img.Width || py >= img.Height) continue;
+
+                // Lấy độ sáng pixel
+                byte intensity = img.At<byte>(py, px);
+
+                // [LOGIC QUAN TRỌNG]
+                // Chỉ cần MỘT điểm sáng (Gap) xuất hiện -> Cắt đứt mạch -> Không phải Short
+                // (Pixel sáng nghĩa là intensity > threshold)
+                if (intensity > threshold)
+                {
+                    return false; // Phát hiện khe hở (nền), lập tức trả về False
+                }
+            }
+
+            // Nếu chạy hết vòng lặp mà không gặp điểm sáng nào -> Đường nối liền mạch
+            return true;
         }
     }
 }

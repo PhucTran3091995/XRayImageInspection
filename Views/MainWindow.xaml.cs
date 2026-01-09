@@ -19,7 +19,6 @@ namespace WpfXrayQA.Views
 
         private void Image_MouseWheel(object sender, MouseWheelEventArgs e)
         {
-            // Zoom Container (chứa cả Ảnh và Overlay)
             var container = sender as Grid;
             if (container == null) return;
 
@@ -27,11 +26,19 @@ namespace WpfXrayQA.Views
             double zoom = e.Delta > 0 ? 0.2 : -0.2;
             double newScale = st.ScaleX + zoom;
 
-            if (newScale < 0.1) newScale = 0.1;
+            // --- [SỬA LỖI 1] GIỚI HẠN ZOOM OUT TỐI ĐA ---
+            // Không cho zoom nhỏ quá 0.2 lần (để tránh mất ảnh)
+            if (newScale < 0.2) newScale = 0.2;
+
+            // Giới hạn zoom in (tuỳ chọn)
             if (newScale > 50) newScale = 50;
 
             st.ScaleX = newScale;
             st.ScaleY = newScale;
+
+            // [QUAN TRỌNG] Reset tâm biến đổi về góc để tránh trôi ảnh khi zoom ở rìa
+            container.RenderTransformOrigin = new Point(0, 0);
+
             e.Handled = true;
         }
         private void Image_MouseDown(object sender, MouseButtonEventArgs e)

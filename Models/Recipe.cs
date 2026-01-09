@@ -24,6 +24,9 @@ namespace WpfXrayQA.Models
         // [MỚI] Kích thước nhân lọc nhiễu
         public int MorphKernelSize { get; set; } = 3;
 
+        // [MỚI] Ngưỡng Void (0-100%) - Dưới ngưỡng này coi là Missing
+        public double VoidThreshold { get; set; } = 30;
+
         // Các tham số cũ (Giữ lại để tránh lỗi tham chiếu khác)
         public int BallRadiusPx { get; set; } = 15;
         public int TargetBallCount { get; set; } = 1225;
@@ -56,6 +59,12 @@ namespace WpfXrayQA.Models
         public int RoiY { get; set; } = 0;
         public int RoiWidth { get; set; } = 0;
         public int RoiHeight { get; set; } = 0;
+        
+        // [MỚI] Tọa độ và kích thước vùng mẫu để so khớp (Template Matching)
+        public int TemplateX { get; set; }
+        public int TemplateY { get; set; }
+        public int TemplateWidth { get; set; }
+        public int TemplateHeight { get; set; }
 
         // Hàm kiểm tra xem có đang dùng ROI không (Nếu Width > 0 là có)
         public bool HasRoi() => RoiWidth > 0 && RoiHeight > 0;

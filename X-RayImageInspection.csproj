@@ -9,7 +9,17 @@
     
     <RootNamespace>WpfXrayQA</RootNamespace>
     
+    <ApplicationIcon>Icon\xray_5330 (1).ico</ApplicationIcon>
+    
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Icon\xray_5330 (1).ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
@@ -19,7 +29,16 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
     <PackageReference Include="OpenCvSharp4.Windows" Version="4.11.0.20250507" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Models\best.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
   </ItemGroup>
 
 </Project>
